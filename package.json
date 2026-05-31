@@ -4,24 +4,23 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest --run",
     "start": "node ."
   },
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "commander": "^2.20.3",
-    "gcode-toolpath": "^2.2.0",
-    "jsonwebtoken": "^8.5.1",
-    "lodash.get": "^4.4.2",
-    "socket.io-client": "^2.3.0"
+    "commander": "^12.1.0",
+    "compression": "^1.7.4",
+    "express": "^4.21.0",
+    "jsonwebtoken": "^9.0.2",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
-    "eslint": "^5.16.0",
-    "eslint-config-standard": "^12.0.0",
-    "eslint-plugin-import": "^2.18.2",
-    "eslint-plugin-node": "^8.0.1",
-    "eslint-plugin-promise": "^4.2.1",
-    "eslint-plugin-standard": "^4.0.1"
+    "@eslint/js": "^9.15.0",
+    "eslint": "^9.15.0",
+    "fast-check": "^3.23.1",
+    "vitest": "^2.1.8"
   }
 }

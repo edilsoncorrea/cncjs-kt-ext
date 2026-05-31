@@ -1,0 +1,130 @@
+feat: Major overhaul - modernize, fix bugs, add features, and web widget
+
+This commit represents a complete modernization and feature expansion of the
+cncjs-kt-ext auto-leveling extension for CNCjs, focused on PCB milling with
+FluidNC/Grbl controllers.
+
+## Dependency Modernization (Requirement 4)
+
+- Upgraded socket.io-client from v2.3.0 to v4.8.x
+  - API change: io.connect() -> io(), query as object, socket.destroy() -> socket.disconnect()
+- Upgraded commander from v2.20.3 to v12.1.x
+  - API change: program.port -> program.opts().port, new Command() instead of global
+- Upgraded jsonwebtoken from v8.5.1 to v9.0.x
+- Replaced eslint v5 + plugins with eslint v9 flat config (@eslint/js)
+- Added vitest v2.1.x + fast-check v3.23.x for testing
+- Removed unused dependencies: gcode-toolpath, lodash.get
+- Added express v4.21.x, compression v1.7.x, socket.io v4.8.x (server) for web widget
+- Now requires Node.js 18+ (tested with Node.js 24)
+
+## Bug Fixes
+
+### Division by Zero in Probe Grid Calculation (Issue #58)
+- When probe area is smaller than delta, parseInt() returned 0 causing NaN coordinates
+- Fix: Use single midpoint when range <= delta, validate dx/dy are finite
+- Added NaN/Infinity rejection with descriptive error messages
+
+### Probe Collision Protection (Issue #59)
+- Added Z position validation before starting probe sequence
+- If Z < travel height: aborts with clear error message showing current Z and required minimum
+- If context is undefined/null: aborts with "Cannot verify Z position" message
+- Prevents tool damage from absolute G0 moves to unsafe positions
+
+## New Features
+
+### G2/G3 Arc Support (Issue #70) - ArcLinearizer class
+- Linearizes arc commands into G1 segments with max length = delta/2
+- Supports both I/J (incremental offset) and R (radius) arc definitions
+- Handles full circles (360 degrees) when endpoint equals start point
+- Validates arc consistency (center equidistant from start/end within 0.001mm)
+- Invalid arcs pass through without modification (with log warning)
+- Preserves original feedrate in all generated segments
+
+### Multi-Probe Averaging (Issue #71) - ProbeStateMachine class
+- New parameter N (1-10): number of probes per point
+- Command syntax: (#autolevel D10 H2 F50 N3)
+- For N >= 4: outlier rejection (values > 2 standard deviations excluded)
+- Fallback to median if all values rejected as outliers
+- Elevates Z between each measurement of the same point
+- Default N=1 preserves original single-probe behavior exactly
+
+### Streaming G-code Compensation - GCodeCompensator class
+- Processes G-code line-by-line via string index iteration (no split('\n'))
+- Reduces peak memory from ~3x to ~2x file size
+- Reports progress every 5000 lines
+- Integrates ArcLinearizer for G2/G3 compensation
+- Extracted from monolithic applyCompensation() method
+
+### Probe Data Validation (Issue #71 - memory/reliability)
+- Synchronous file loading with robust validation
+- Checks: finite values, minimum 3 points, non-colinearity
+- Invalid data is discarded with descriptive error messages
+- Graceful handling of missing files (ENOENT)
+
+### Error Handling & Feedback (Issue #71)
+- Probe failure detection (G38.2 no-contact flag)
+- Automatic Z retraction on probe failure
+- Probing summary at start: point count, area, delta, feed, estimated time
+- Reconnection support: 3 attempts, 5s interval, graceful shutdown on failure
+- I/O error handling for probe file writes
+
+### Web Widget Interface (NEW)
+- Standalone web server (Express + socket.io) on port 8190
+- Activated via --web-widget CLI flag (optional, non-intrusive)
+- Real-time probing progress via WebSocket
+- Canvas 2D heatmap visualization with color gradient (blue->green->red)
+- Parameter configuration panel with live validation
+- One-click start/stop probing (equivalent to macro commands)
+- Statistics display: min/max/avg Z, std deviation, amplitude with color coding
+- File management: save/load/delete probe data files via REST API
+- Grid calculator: shows planned probe points and estimated time
+- Tooltip on hover showing X/Y/Z coordinates
+- Rate-limited WebSocket events (max 10/sec) for RPi performance
+- Total frontend assets < 50 KB (vanilla JS, no frameworks)
+- Compatible with Chromium on Raspberry Pi 4
+
+## Architecture Changes
+
+- autolevel.js: Added EventEmitter for internal event bus (probe:start, probe:point,
+  probe:complete, probe:error, gcode:changed). Removed helper methods moved to
+  GCodeCompensator. Integrated ProbeStateMachine for multi-probe mode.
+- index.js: Refactored for socket.io v4 + commander v12. Added --web-widget flag
+  with conditional loading. Added disconnect/reconnect_failed handlers.
+- New files: arc-linearizer.js, probe-state-machine.js, gcode-compensator.js,
+  rate-limiter.js, widget-server.js, widget-api.js
+- New directory: public/ (HTML, CSS, JS for web widget)
+
+## Testing
+
+- 110 unit tests (vitest) covering all new components
+- Test files: arc-linearizer, probe-state-machine, gcode-compensator,
+  autolevel-grid, z-validation, autolevel-multiprobe
+- All tests pass on Node.js 24
+
+## CLI Usage
+
+Basic (same as before):
+  node . --port /dev/ttyACM0
+
+With web widget:
+  node . --port /dev/ttyACM0 --web-widget --widget-port 8190
+
+Then open http://localhost:8190 in browser.
+
+## Macro Command (extended syntax)
+
+  (#autolevel D[delta] H[height] F[feed] M[margin] P[probeOnly] X[xSize] Y[ySize] N[probesPerPoint])
+
+New parameter: N (number of probes per point, 1-10, default 1)
+
+## Compatibility
+
+- Grbl / FluidNC controllers (same as original)
+- CNCjs server with socket.io v4 support
+- Node.js 18+ required
+- Raspberry Pi 4 compatible (tested memory/performance constraints)
+
+## References
+
+- Original issues addressed: #58, #59, #70, #71, #72, #73
+- Fork of: https://github.com/kreso-t/cncjs-kt-ext

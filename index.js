@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 
-const program = require('commander')
+const { Command } = require('commander')
 const pkg = require('./package.json')
 const fs = require('fs')
 const path = require('path')
-const io = require('socket.io-client')
+const { io } = require('socket.io-client')
 const jwt = require('jsonwebtoken')
 const Autolevel = require('./autolevel.js')
 const http = require('http');
+
+const program = new Command();
 
 //#region  prevent starting multiple instances
 // create Sentinel server
@@ -44,21 +46,25 @@ program
   .option('--socket-port <port>', 'socket port', '8000')
   .option('--controller-type <type>', 'controller type: Grbl|Smoothie|TinyG', 'Grbl')
   .option('--access-token-lifetime <lifetime>', 'access token lifetime in seconds or a time span string', '30d')
+  .option('-w, --web-widget', 'enable web widget interface')
+  .option('--widget-port <port>', 'web widget port', '8190')
 
 program.parse(process.argv)
 
+const opts = program.opts()
+
 var options = {
-  id: program.id,
-  name: (typeof program.name == 'function') ? null : program.name,
-  secret: program.secret,
-  port: program.port,
-  baudrate: program.baudrate,
-  config: program.config,
-  outDir: program.outDir,
-  socketAddress: program.socketAddress,
-  socketPort: program.socketPort,
-  controllerType: program.controllerType,
-  accessTokenLifetime: program.accessTokenLifetime
+  id: opts.id,
+  name: opts.name,
+  secret: opts.secret,
+  port: opts.port,
+  baudrate: opts.baudrate,
+  config: opts.config,
+  outDir: opts.outDir,
+  socketAddress: opts.socketAddress,
+  socketPort: opts.socketPort,
+  controllerType: opts.controllerType,
+  accessTokenLifetime: opts.accessTokenLifetime
 }
 
 var defaults = {
@@ -77,7 +83,7 @@ const getUserHome = function () {
   return process.env[(process.platform === 'win32') ? 'USERPROFILE' : 'HOME']
 }
 
-const cncrc = (program.config) ? program.config : path.resolve(getUserHome(), '.cncrc')
+const cncrc = (opts.config) ? opts.config : path.resolve(getUserHome(), '.cncrc')
 var config
 
 const generateAccessToken = function (payload, secret, expiration) {
@@ -94,21 +100,21 @@ Object.keys(options).forEach((key) => {
   }
 })
 
-if (program.config) {
+if (opts.config) {
   config = JSON.parse(fs.readFileSync(cncrc, 'utf8'))
-  if (!program.port) {
+  if (!opts.port) {
     if (config.hasOwnProperty('ports') && config.ports[0] && config.ports[0].comName) {
       options.port = config.ports[0].comName
     }
   }
 
-  if (!program.baudrate) {
+  if (!opts.baudrate) {
     if (config.hasOwnProperty('baudrates') && config.baudrates[0]) {
       options.baudrate = config.baudrates[0]
     }
   }
 
-  if (!program.controllerType) {
+  if (!opts.controllerType) {
     if (config.hasOwnProperty('controller')) {
       options.controllerType = config.controller
     }
@@ -146,10 +152,14 @@ if (!options.id && !options.name) {
 }
 
 const token = generateAccessToken({ id: options.id, name: options.name }, options.secret, options.accessTokenLifetime)
-const url = 'ws://' + options.socketAddress + ':' + options.socketPort + '?token=' + token
+const url = 'ws://' + options.socketAddress + ':' + options.socketPort
 
-let socket = io.connect('ws://' + options.socketAddress + ':' + options.socketPort, {
-  'query': 'token=' + token
+let socket = io(url, {
+  query: { token },
+  reconnection: true,
+  reconnectionAttempts: 3,
+  reconnectionDelay: 5000,
+  timeout: 10000
 })
 
 socket.on('connect', () => {
@@ -164,13 +174,23 @@ socket.on('connect', () => {
 socket.on('error', (err) => {
   console.error('Connection error.', err)
   if (socket) {
-    socket.destroy()
+    socket.disconnect()
     socket = null
   }
 })
 
 socket.on('close', () => {
   console.log('Connection closed.')
+})
+
+socket.on('disconnect', (reason) => {
+  console.log('Disconnected from server:', reason)
+})
+
+socket.on('reconnect_failed', () => {
+  console.error(`AL: Reconnection failed after 3 attempts. Saving probe data and exiting.`)
+  // The socket.io v4 reconnection is already configured with reconnectionAttempts: 3
+  process.exit(1)
 })
 
 socket.on('serialport:open', function (options) {
@@ -194,6 +214,14 @@ function callback(err, socket) {
   }
 
   let autolevel = new Autolevel(socket, options)
+
+  // Start widget server if --web-widget flag is set
+  if (opts.webWidget) {
+    const WidgetServer = require('./widget-server.js');
+    const widgetServer = new WidgetServer(autolevel, { port: parseInt(opts.widgetPort || '8190') });
+    widgetServer.start();
+  }
+
   socket.on('serialport:write', function (data, context) {
     if (data.indexOf('#autolevel_reapply') >= 0 && context && context.source === 'feeder') {
       autolevel.reapply(data, context)

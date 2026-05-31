@@ -1,6 +1,8 @@
 /* eslint-disable no-useless-escape */
+const EventEmitter = require('events')
 const SocketWrap = require('./socketwrap')
 const fs = require('fs')
+const ProbeStateMachine = require('./probe-state-machine.js')
 
 const alFileNamePrefix = '#AL:'
 
@@ -27,6 +29,7 @@ Object.freeze(Units);
 
 module.exports = class Autolevel {
   constructor(socket, options) {
+    this.events = new EventEmitter()
     this.gcodeFileName = ''
     this.gcode = ''
     this.sckw = new SocketWrap(socket, options.port)
@@ -39,6 +42,8 @@ module.exports = class Autolevel {
     this.max_dz = 0;
     this.sum_dz = 0;
     this.planedPointCount = 0
+    this.probesPerPoint = 1
+    this.probeStateMachine = null
     this.probeFile = 0;
     this.wco = {
       x: 0,
@@ -47,40 +52,64 @@ module.exports = class Autolevel {
     }
 
     // Try to read in any pre-existing probe data...
-    fs.readFile(DEFAULT_PROBE_FILE, 'utf8', (err, data) => {
-      if (!err) {
-        try {
-          console.log(`Loading previous probe from ${DEFAULT_PROBE_FILE}`)
-          this.probedPoints = [];
-          let lines = data.split('\n');
-          let pnum = 0;
-          lines.forEach(line => {
-            let vals = line.split(' ');
-            if (vals.length >= 3) {
-              let pt = {
-                x: parseFloat(vals[0]),
-                y: parseFloat(vals[1]),
-                z: parseFloat(vals[2])
-              };
-              this.probedPoints.push(pt);
-              pnum++;
-              console.log(`point ${pnum} X:${pt.x} Y:${pt.y} Z:${pt.z}`);
-            }
-          });
-          console.log(`Read ${this.probedPoints.length} probed points from previous session`);
+    try {
+      const data = fs.readFileSync(DEFAULT_PROBE_FILE, 'utf8')
+      console.log(`Loading previous probe from ${DEFAULT_PROBE_FILE}`)
+      this.probedPoints = []
+      let lines = data.split('\n')
+      let invalidLines = 0
+      lines.forEach(line => {
+        let vals = line.trim().split(/\s+/)
+        if (vals.length >= 3) {
+          let x = parseFloat(vals[0])
+          let y = parseFloat(vals[1])
+          let z = parseFloat(vals[2])
+          if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+            this.probedPoints.push({ x, y, z })
+          } else {
+            invalidLines++
+          }
         }
-        catch (err2) {
-          this.probedPoints = [];
-          console.log(`Failed to read probed points from prevoius session: ${err2}`);
-        }
+      })
+
+      if (invalidLines > 0) {
+        console.log(`WARNING: ${invalidLines} lines with invalid data were skipped`)
       }
-    });
+
+      // Validate minimum 3 non-colinear points
+      if (this.probedPoints.length >= 3) {
+        let hasNonColinear = false
+        for (let i = 2; i < this.probedPoints.length; i++) {
+          let v1 = { x: this.probedPoints[1].x - this.probedPoints[0].x, y: this.probedPoints[1].y - this.probedPoints[0].y, z: 0 }
+          let v2 = { x: this.probedPoints[i].x - this.probedPoints[0].x, y: this.probedPoints[i].y - this.probedPoints[0].y, z: 0 }
+          if (Math.abs(v1.x * v2.y - v1.y * v2.x) > 0.00001) {
+            hasNonColinear = true
+            break
+          }
+        }
+        if (!hasNonColinear) {
+          console.log('ERROR: All probed points are colinear. Discarding data.')
+          this.probedPoints = []
+        } else {
+          console.log(`Read ${this.probedPoints.length} valid probed points from previous session`)
+        }
+      } else if (this.probedPoints.length > 0) {
+        console.log(`WARNING: Only ${this.probedPoints.length} points loaded (minimum 3 non-colinear required for compensation)`)
+      }
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        console.log(`Failed to read probe data: ${err.message}`)
+      }
+      // File doesn't exist or can't be read - start without probe data
+      this.probedPoints = []
+    }
 
     socket.on('gcode:load', (file, gc) => {
       if (!file.startsWith(alFileNamePrefix)) {
         this.gcodeFileName = file
         this.gcode = gc
         console.log('gcode loaded:', file)
+        this.events.emit('gcode:changed', { loaded: true, fileName: file, bounds: null })
       }
     })
 
@@ -88,6 +117,7 @@ module.exports = class Autolevel {
       this.gcodeFileName = ''
       this.gcode = ''
       console.log('gcode unloaded')
+      this.events.emit('gcode:changed', { loaded: false, fileName: '', bounds: null })
     })
 
     socket.on('serialport:read', (data) => {
@@ -101,36 +131,100 @@ module.exports = class Autolevel {
             z: prb[2] - this.wco.z
           }
 
+          // Check probe success flag
+          let probeSuccess = parseInt(prbm[5])
+          if (!probeSuccess && this.planedPointCount > 0) {
+            // Probe failed - retract and abort
+            console.log('AL: Probe FAILED at point ' + (this.probedPoints.length + 1))
+            this.events.emit('probe:error', { message: 'Probe failed', pointIndex: this.probedPoints.length + 1 })
+            this.sckw.sendGcode(`G0 Z${this.height}`)
+            this.sckw.sendGcode(`(AL: ERROR - Probe failed at point ${this.probedPoints.length + 1}, X:${pt.x.toFixed(3)} Y:${pt.y.toFixed(3)}. Aborting.)`)
+            this.planedPointCount = 0
+            this.wco = { x: 0, y: 0, z: 0 }
+            return
+          }
+
           if (this.probeFile) {
             // Write the results to the probe file. Use 9 point format for compatibility
             // with LinuxCNC probe file format
-            fs.writeSync(this.probeFile, `${pt.x} ${pt.y} ${pt.z} 0 0 0 0 0 0\n`);
+            try {
+              fs.writeSync(this.probeFile, `${pt.x} ${pt.y} ${pt.z} 0 0 0 0 0 0\n`);
+            } catch (err) {
+              console.log(`AL: Error writing to probe file: ${err.message}`)
+              this.sckw.sendGcode(`(AL: WARNING - Error writing probe file: ${err.message})`)
+            }
           }
 
           if (this.planedPointCount > 0) {
-            if (this.probedPoints.length === 0) {
-              this.min_dz = pt.z;
-              this.max_dz = pt.z;
-              this.sum_dz = pt.z;
-            } else {
-              if (pt.z < this.min_dz) this.min_dz = pt.z;
-              if (pt.z > this.max_dz) this.max_dz = pt.z;
-              this.sum_dz += pt.z;
-            }
-            this.probedPoints.push(pt)
+            if (this.probeStateMachine && this.probesPerPoint > 1) {
+              // Multi-probe mode: use ProbeStateMachine
+              let result = this.probeStateMachine.addMeasurement(pt.x, pt.y, pt.z)
 
-            console.log('probed ' + this.probedPoints.length + '/' + this.planedPointCount + '>', pt.x.toFixed(3), pt.y.toFixed(3), pt.z.toFixed(3))
-            // send info to console
-            if (this.probedPoints.length >= this.planedPointCount) {
-              this.sckw.sendGcode(`(AL: dz_min=${this.min_dz.toFixed(3)}, dz_max=${this.max_dz.toFixed(3)}, dz_avg=${(this.sum_dz / this.probedPoints.length).toFixed(3)})`);
-              if (this.probeFile) {
-                this.fileClose();
+              if (result.pointComplete) {
+                // Point fully measured — update stats and push averaged point
+                let avgPt = result.point
+                if (this.probedPoints.length === 0) {
+                  this.min_dz = avgPt.z;
+                  this.max_dz = avgPt.z;
+                  this.sum_dz = avgPt.z;
+                } else {
+                  if (avgPt.z < this.min_dz) this.min_dz = avgPt.z;
+                  if (avgPt.z > this.max_dz) this.max_dz = avgPt.z;
+                  this.sum_dz += avgPt.z;
+                }
+                this.probedPoints.push(avgPt)
+
+                this.events.emit('probe:point', { index: this.probedPoints.length, total: this.planedPointCount, x: avgPt.x, y: avgPt.y, z: avgPt.z })
+
+                console.log('probed point ' + this.probedPoints.length + '/' + this.planedPointCount + ' (N=' + this.probesPerPoint + ')>', avgPt.x.toFixed(3), avgPt.y.toFixed(3), avgPt.z.toFixed(3))
+
+                if (result.allComplete) {
+                  this.sckw.sendGcode(`(AL: dz_min=${this.min_dz.toFixed(3)}, dz_max=${this.max_dz.toFixed(3)}, dz_avg=${(this.sum_dz / this.probedPoints.length).toFixed(3)})`);
+                  if (this.probeFile) {
+                    this.fileClose();
+                  }
+                  if (!this.probeOnly) {
+                    this.applyCompensation()
+                  }
+                  this.events.emit('probe:complete', { minZ: this.min_dz, maxZ: this.max_dz, avgZ: this.sum_dz / this.probedPoints.length, count: this.probedPoints.length, success: true })
+                  this.planedPointCount = 0
+                  this.wco = { x: 0, y: 0, z: 0 }
+                }
+              } else {
+                // Need more measurements for this point — emit re-probe commands
+                console.log('probe measurement ' + this.probeStateMachine.currentMeasurements.length + '/' + this.probesPerPoint + ' for point ' + (this.probedPoints.length + 1) + '>', pt.x.toFixed(3), pt.y.toFixed(3), pt.z.toFixed(3))
+                let cmds = this.probeStateMachine.getRepeatProbeCommands(pt.x, pt.y, this.height, this.feed)
+                this.sckw.sendGcode(cmds)
               }
-              if (!this.probeOnly) {
-                this.applyCompensation()
+            } else {
+              // Single-probe mode (N=1): original behavior
+              if (this.probedPoints.length === 0) {
+                this.min_dz = pt.z;
+                this.max_dz = pt.z;
+                this.sum_dz = pt.z;
+              } else {
+                if (pt.z < this.min_dz) this.min_dz = pt.z;
+                if (pt.z > this.max_dz) this.max_dz = pt.z;
+                this.sum_dz += pt.z;
               }
-              this.planedPointCount = 0
-              this.wco = { x: 0, y: 0, z: 0 }
+              this.probedPoints.push(pt)
+
+              this.events.emit('probe:point', { index: this.probedPoints.length, total: this.planedPointCount, x: pt.x, y: pt.y, z: pt.z })
+
+              console.log('probed ' + this.probedPoints.length + '/' + this.planedPointCount + '>', pt.x.toFixed(3), pt.y.toFixed(3), pt.z.toFixed(3))
+              // send info to console
+              if (this.probedPoints.length >= this.planedPointCount) {
+                this.sckw.sendGcode(`(AL: dz_min=${this.min_dz.toFixed(3)}, dz_max=${this.max_dz.toFixed(3)}, dz_avg=${(this.sum_dz / this.probedPoints.length).toFixed(3)})`);
+                if (this.probeFile) {
+                  this.fileClose();
+                }
+                if (!this.probeOnly) {
+                  this.applyCompensation()
+                }
+                this.events.emit('probe:complete', { minZ: this.min_dz, maxZ: this.max_dz, avgZ: this.sum_dz / this.probedPoints.length, count: this.probedPoints.length, success: true })
+                this.planedPointCount = 0
+                this.wco = { x: 0, y: 0, z: 0 }
+              }
             }
           }
         }
@@ -182,6 +276,11 @@ module.exports = class Autolevel {
     let p = /P([\.\+\-\d]+)/gi.exec(cmd)
     if (p) this.probeOnly = parseFloat(p[1])
 
+    // N parameter: number of probes per point (1-10, default 1)
+    let n = /N([\.\+\-\d]+)/gi.exec(cmd)
+    if (n) this.probesPerPoint = Math.max(1, Math.min(10, parseInt(n[1])))
+    else this.probesPerPoint = 1
+
     if (!this.gcode) {
       this.sckw.sendGcode('(AL: no gcode loaded)')
       if (!this.probeOnly) {
@@ -202,6 +301,17 @@ module.exports = class Autolevel {
 
     let h = /H([\.\+\-\d]+)/gi.exec(cmd)
     if (h) this.height = parseFloat(h[1])
+
+    // Validate Z position before proceeding (collision protection)
+    if (context === undefined || context === null || context.posz === undefined) {
+      this.sckw.sendGcode('(AL: ERROR - Cannot verify Z position, aborting)')
+      return
+    }
+
+    if (context.posz < this.height) {
+      this.sckw.sendGcode(`(AL: ERROR - Current Z position (${context.posz.toFixed(3)}) is below travel height (${this.height.toFixed(3)}). Move Z up before starting autolevel.)`)
+      return
+    }
 
     let f = /F([\.\+\-\d]+)/gi.exec(cmd)
     if (f) this.feed = parseFloat(f[1])
@@ -257,8 +367,47 @@ module.exports = class Autolevel {
       ymax = context.ymax - margin;
     }
 
-    let dx = (xmax - xmin) / parseInt((xmax - xmin) / this.delta)
-    let dy = (ymax - ymin) / parseInt((ymax - ymin) / this.delta)
+    // Guard against division by zero: if range <= delta, use a single point at midpoint
+    let dx, dy
+    let singlePointX = false
+    let singlePointY = false
+
+    if ((xmax - xmin) <= this.delta) {
+      // Range is smaller than or equal to delta: use single midpoint
+      dx = xmax - xmin
+      let midX = (xmin + xmax) / 2
+      xmin = midX
+      xmax = midX
+      singlePointX = true
+    } else {
+      let nx = parseInt((xmax - xmin) / this.delta)
+      dx = (xmax - xmin) / nx
+    }
+
+    if ((ymax - ymin) <= this.delta) {
+      // Range is smaller than or equal to delta: use single midpoint
+      dy = ymax - ymin
+      let midY = (ymin + ymax) / 2
+      ymin = midY
+      ymax = midY
+      singlePointY = true
+    } else {
+      let ny = parseInt((ymax - ymin) / this.delta)
+      dy = (ymax - ymin) / ny
+    }
+
+    // Validate that dx and dy are finite numbers
+    if (!Number.isFinite(dx)) {
+      this.sckw.sendGcode('(AL: error - invalid dx value on X axis: NaN or Infinity)')
+      console.log('AL: error - dx is not finite on X axis')
+      return
+    }
+    if (!Number.isFinite(dy)) {
+      this.sckw.sendGcode('(AL: error - invalid dy value on Y axis: NaN or Infinity)')
+      console.log('AL: error - dy is not finite on Y axis')
+      return
+    }
+
     code.push('(AL: probing initial point)')
     code.push(`G21`)
     code.push(`G90`)
@@ -280,6 +429,12 @@ module.exports = class Autolevel {
       while (x < xmax - 0.01) {
         x += dx
         if (x > xmax) x = xmax
+        // Validate that generated coordinates are finite
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          this.sckw.sendGcode(`(AL: error - generated non-finite coordinate X:${x} Y:${y})`)
+          console.log(`AL: error - non-finite coordinate generated X:${x} Y:${y}`)
+          return
+        }
         code.push(`(AL: probing point ${this.planedPointCount + 1})`)
         code.push(`G90 G0 X${x.toFixed(3)} Y${y.toFixed(3)} Z${this.height}`)
         code.push(`G38.2 Z-${this.height + 1} F${this.feed}`)
@@ -287,6 +442,15 @@ module.exports = class Autolevel {
         this.planedPointCount++
       }
     }
+    this.probeStateMachine = new ProbeStateMachine(this.probesPerPoint, this.planedPointCount)
+
+    // Send probing summary
+    const estimatedTime = this.planedPointCount * ((this.height + 1) / this.feed + (dx + dy) / 1000) // rough estimate in minutes
+    this.sckw.sendGcode(`(AL: Summary - Points: ${this.planedPointCount}, Area: X[${xmin.toFixed(1)}..${xmax.toFixed(1)}] Y[${ymin.toFixed(1)}..${ymax.toFixed(1)}], Delta: ${this.delta}mm, Feed: ${this.feed}mm/min, Est.time: ${estimatedTime.toFixed(1)}min)`)
+    console.log(`AL Summary: ${this.planedPointCount} points, area X[${xmin.toFixed(1)}..${xmax.toFixed(1)}] Y[${ymin.toFixed(1)}..${ymax.toFixed(1)}], delta=${this.delta}mm, feed=${this.feed}mm/min, est.time=${estimatedTime.toFixed(1)}min`)
+
+    this.events.emit('probe:start', { totalPoints: this.planedPointCount, params: { delta: this.delta, height: this.height, feed: this.feed, margin, probesPerPoint: this.probesPerPoint } })
+
     this.sckw.sendGcode(code.join('\n'))
   }
 
@@ -302,252 +466,32 @@ module.exports = class Autolevel {
     }
   }
 
-  stripComments(line) {
-    const re1 = new RegExp(/\s*\([^\)]*\)/g) // Remove anything inside the parentheses
-    const re2 = new RegExp(/\s*;.*/g) // Remove anything after a semi-colon to the end of the line, including preceding spaces
-    const re3 = new RegExp(/\s+/g)
-    return (line.replace(re1, '').replace(re2, '').replace(re3, ''))
-  };
-
-  distanceSquared3(p1, p2) {
-    return (p2.x - p1.x) * (p2.x - p1.x) + (p2.y - p1.y) * (p2.y - p1.y) + (p2.z - p1.z) * (p2.z - p1.z)
-  }
-
-  distanceSquared2(p1, p2) {
-    return (p2.x - p1.x) * (p2.x - p1.x) + (p2.y - p1.y) * (p2.y - p1.y)
-  }
-
-  crossProduct3(u, v) {
-    return {
-      x: (u.y * v.z - u.z * v.y),
-      y: -(u.x * v.z - u.z * v.x),
-      z: (u.x * v.y - u.y * v.x)
-    }
-  }
-
-  isColinear(u, v) {
-    return Math.abs(u.x * v.y - u.y * v.x) < 0.00001
-  }
-
-  sub3(p1, p2) {
-    return {
-      x: p1.x - p2.x,
-      y: p1.y - p2.y,
-      z: p1.z - p2.z
-    }
-  }
-
-  formatPt(pt) {
-    return `(x:${pt.x.toFixed(3)} y:${pt.y.toFixed(3)} z:${pt.z.toFixed(3)})`
-  }
-
-
-  /**
-   * Appends point to point array only if there is a difference from last point
-   * @param {*} resArray 
-   * @param {*} pt 
-   * @returns 
-   */
-  appendPointSkipDuplicate(resArray, pt) {
-    if (resArray.length == 0) {
-      resArray.push(pt);
-      return;
-    }
-    const lastPt = resArray[resArray.length - 1];
-    if (this.distanceSquared3(pt, lastPt) > 1e-10) {
-      resArray.push(pt);
-    }
-    // don't append if there is no significant movement
-  }
-
-  /**
-   * Splits the line segment to smaller segments, not larger than probing grid delta
-   * @param {*} p1 
-   * @param {*} p2 
-   * @param {*} units 
-   * @returns 
-   */
-  splitToSegments(p1, p2, units) {
-    let res = []
-    let v = this.sub3(p2, p1) // delta
-    let dist = Math.sqrt(this.distanceSquared3(p1, p2)) // distance
-
-    if (dist < 1e-10) {
-      return [];
-    }
-
-    let dir = {
-      x: v.x / dist,
-      y: v.y / dist,
-      z: v.z / dist
-    } // direction vector
-    let maxSegLength = Units.convert(this.delta, Units.MILLIMETERS, units) / 2
-    res.push({
-      x: p1.x,
-      y: p1.y,
-      z: p1.z
-    }) // first point
-    for (let d = maxSegLength; d < dist; d += maxSegLength) {
-      this.appendPointSkipDuplicate(res, {
-        x: p1.x + dir.x * d,
-        y: p1.y + dir.y * d,
-        z: p1.z + dir.z * d
-      }) // split points
-    }
-    this.appendPointSkipDuplicate(res, {
-      x: p2.x,
-      y: p2.y,
-      z: p2.z
-    }) // last point    
-    return res
-  }
-
-  // Argument is assumed to be in millimeters.
-  getThreeClosestPoints(pt) {
-    let res = []
-    if (this.probedPoints.length < 3) {
-      return res
-    }
-    this.probedPoints.sort((a, b) => {
-      return this.distanceSquared2(a, pt) < this.distanceSquared2(b, pt) ? -1 : 1
-    })
-    let i = 0
-    while (res.length < 3 && i < this.probedPoints.length) {
-      if (res.length === 2) {
-        // make sure points are not colinear
-        if (!this.isColinear(this.sub3(res[1], res[0]), this.sub3(this.probedPoints[i], res[0]))) {
-          res.push(this.probedPoints[i])
-        }
-      } else {
-        res.push(this.probedPoints[i])
-      }
-      i++
-    }
-    return res
-  }
-
-  compensateZCoord(pt_in_or_mm, input_units) {
-
-    let pt_mm = {
-      x: Units.convert(pt_in_or_mm.x, input_units, Units.MILLIMETERS),
-      y: Units.convert(pt_in_or_mm.y, input_units, Units.MILLIMETERS),
-      z: Units.convert(pt_in_or_mm.z, input_units, Units.MILLIMETERS)
-    }
-
-    let points = this.getThreeClosestPoints(pt_mm)
-    if (points.length < 3) {
-      console.log('Cant find 3 closest points')
-      return pt_in_or_mm
-    }
-    let normal = this.crossProduct3(this.sub3(points[1], points[0]), this.sub3(points[2], points[0]))
-    let pp = points[0] // point on plane
-    let dz = 0 // compensation delta
-    if (normal.z !== 0) {
-      // find z at the point seg, on the plane defined by three points
-      dz = pp.z - (normal.x * (pt_mm.x - pp.x) + normal.y * (pt_mm.y - pp.y)) / normal.z
-    } else {
-      console.log(this.formatPt(pt_mm), 'normal.z is zero', this.formatPt(points[0]), this.formatPt(points[1]), this.formatPt(points[2]))
-    }
-    return {
-      x: Units.convert(pt_mm.x, Units.MILLIMETERS, input_units),
-      y: Units.convert(pt_mm.y, Units.MILLIMETERS, input_units),
-      z: Units.convert(pt_mm.z + dz, Units.MILLIMETERS, input_units)
-    }
-  }
-
   applyCompensation() {
-    this.sckw.sendGcode(`(AL: applying ...)\n`)
-
+    this.sckw.sendGcode('(AL: applying ...)')
     console.log('applying compensation ...')
     try {
+      const ArcLinearizer = require('./arc-linearizer.js')
+      const GCodeCompensator = require('./gcode-compensator.js')
 
-      let lines = this.gcode.split('\n')
-      let p0 = {
-        x: 0,
-        y: 0,
-        z: 0
-      }
-      let p0_initialized = false
-      let pt = {
-        x: 0,
-        y: 0,
-        z: 0
-      }
+      const arcLinearizer = new ArcLinearizer(this.delta / 2)
+      const compensator = new GCodeCompensator(this.probedPoints, this.delta, arcLinearizer)
 
-      let abs = true
-      let units = Units.MILLIMETERS
-      let result = []
-      let lc = 0;
-      lines.forEach(line => {
-        if (lc % 1000 === 0) {
-          console.log(`progress info ... line: ${lc}/${lines.length}`);
-          this.sckw.sendGcode(`(AL: progress ...  ${lc}/${lines.length})`)
-        }
-        lc++;
-        if (line.match(/^\s*\([^\)]*\)\s*$/g)) { // if whole line is a comment, copy it to output and skip to next line 
-          result.push(line.trim());
-        } else {
-          let lineStripped = this.stripComments(line)
-          if (/(G38.+|G5.+|G10|G4.+|G92|G92.1)/gi.test(lineStripped)) result.push(lineStripped) // skip compensation for these G-Codes
-          else {
-            if (/G91/i.test(lineStripped)) abs = false
-            if (/G90/i.test(lineStripped)) abs = true
-            if (/G20/i.test(lineStripped)) units = Units.INCHES
-            if (/G21/i.test(lineStripped)) units = Units.MILLIMETERS
-
-            if (!/(X|Y|Z)/gi.test(lineStripped)) {
-              result.push(lineStripped) // no coordinate change --> copy to output
-            } else {
-              let xMatch = /X([\.\+\-\d]+)/gi.exec(lineStripped)
-              if (xMatch) pt.x = parseFloat(xMatch[1])
-
-              let yMatch = /Y([\.\+\-\d]+)/gi.exec(lineStripped)
-              if (yMatch) pt.y = parseFloat(yMatch[1])
-
-              let zMatch = /Z([\.\+\-\d]+)/gi.exec(lineStripped)
-              if (zMatch) pt.z = parseFloat(zMatch[1])
-
-              if (abs) {
-                // strip coordinates
-                lineStripped = lineStripped.replace(/([XYZ])([\.\+\-\d]+)/gi, '')
-                if (p0_initialized) {
-                  let segs = this.splitToSegments(p0, pt, units)
-                  for (let seg of segs) {
-                    let cpt = this.compensateZCoord(seg, units)
-                    let newLine = lineStripped + ` X${cpt.x.toFixed(3)} Y${cpt.y.toFixed(3)} Z${cpt.z.toFixed(3)} ; Z${seg.z.toFixed(3)}`
-                    result.push(newLine.trim())
-                  }
-                } else {
-                  let cpt = this.compensateZCoord(pt, units)
-                  let newLine = lineStripped + ` X${cpt.x.toFixed(3)} Y${cpt.y.toFixed(3)} Z${cpt.z.toFixed(3)} ; Z${pt.z.toFixed(3)}`
-                  result.push(newLine.trim())
-                  p0_initialized = true
-                }
-              } else {
-                result.push(lineStripped)
-                console.log('WARNING: using relative mode may not produce correct results')
-              }
-              p0 = {
-                x: pt.x,
-                y: pt.y,
-                z: pt.z
-              } // clone
-            }
-          }
-        }
+      const outputGCode = compensator.process(this.gcode, (lineCount, totalLines) => {
+        console.log(`progress info ... line: ${lineCount}/${totalLines}`)
+        this.sckw.sendGcode(`(AL: progress ... ${lineCount}/${totalLines})`)
       })
-      const newgcodeFileName = alFileNamePrefix + this.gcodeFileName;
+
+      const newgcodeFileName = alFileNamePrefix + this.gcodeFileName
       this.sckw.sendGcode(`(AL: loading new gcode ${newgcodeFileName} ...)`)
       console.log(`AL: loading new gcode ${newgcodeFileName} ...)`)
-      const outputGCode = result.join('\n');
       this.sckw.loadGcode(newgcodeFileName, outputGCode)
       if (this.outDir) {
-        const outputFile = this.outDir + "/" + newgcodeFileName;
-        fs.writeFileSync(outputFile, outputGCode);
-        this.sckw.sendGcode(`(AL: output file written to ${outputFile})`);
-        console.log(`output file written to ${outputFile}`);
+        const outputFile = this.outDir + '/' + newgcodeFileName
+        fs.writeFileSync(outputFile, outputGCode)
+        this.sckw.sendGcode(`(AL: output file written to ${outputFile})`)
+        console.log(`output file written to ${outputFile}`)
       }
-      this.sckw.sendGcode(`(AL: finished)`)
+      this.sckw.sendGcode('(AL: finished)')
     } catch (x) {
       this.sckw.sendGcode(`(AL: error occurred ${x})`)
       console.log(`error occurred ${x}`)
