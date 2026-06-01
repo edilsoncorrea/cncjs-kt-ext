@@ -203,7 +203,9 @@ socket.on('serialport:open', function (options) {
 })
 
 socket.on('serialport:error', function (options) {
-  callback(new Error('Error opening serial port "' + options.port + '"'))
+  console.error('Serial port error: "' + options.port + '" - continuing without serial connection')
+  // Still initialize autolevel and widget even without serial port
+  callback(null, socket)
 })
 
 // eslint-disable-next-line handle-callback-err

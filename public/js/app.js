@@ -75,6 +75,7 @@
     elements.btnReapply.addEventListener('click', handleReapplyClick);
     elements.btnSave.addEventListener('click', handleSaveClick);
     elements.btnLoadList.addEventListener('click', handleLoadListClick);
+    document.getElementById('btn-simulate').addEventListener('click', handleSimulateClick);
 
     // Bind form inputs to grid recalculation
     const inputs = elements.paramsForm.querySelectorAll('input[type="number"]');
@@ -302,6 +303,20 @@
   function handleReapplyClick() {
     socketClient.reapply();
     showToast('Re-applying compensation...', 'success');
+  }
+
+  function handleSimulateClick() {
+    const params = getFormParams();
+    socketClient.simulate({
+      delta: params.delta,
+      height: params.height,
+      feed: params.feed,
+      margin: params.margin,
+      N: params.nProbes,
+      xSize: params.xSize || 50,
+      ySize: params.ySize || 50,
+    });
+    showToast('Starting simulation...', 'success');
   }
 
   async function handleSaveClick() {

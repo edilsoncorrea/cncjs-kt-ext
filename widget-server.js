@@ -132,6 +132,11 @@ class WidgetServer {
         this.autolevel.reapply('#autolevel_reapply', {});
       });
 
+      socket.on('simulate-probe', (params) => {
+        console.log('Widget: starting SIMULATION with params:', params);
+        this._runSimulation(params);
+      });
+
       socket.on('get-state', () => {
         socket.emit('initial-state', this._getState());
       });
@@ -146,6 +151,106 @@ class WidgetServer {
     if (this.io) {
       this.io.emit(event, data);
     }
+  }
+
+  /**
+   * Simulates a probing session with realistic Z data.
+   * Generates a surface with slight curvature (like a real PCB).
+   */
+  _runSimulation(params) {
+    const delta = params.delta || 10;
+    const margin = params.margin || delta / 4;
+    const xSize = params.xSize || 50;
+    const ySize = params.ySize || 50;
+
+    const xmin = margin;
+    const xmax = xSize - margin;
+    const ymin = margin;
+    const ymax = ySize - margin;
+
+    const nx = Math.max(1, Math.ceil((xmax - xmin) / delta));
+    const ny = Math.max(1, Math.ceil((ymax - ymin) / delta));
+    const dx = (xmax - xmin) / nx;
+    const dy = (ymax - ymin) / ny;
+
+    // Generate grid points
+    const points = [];
+    for (let iy = 0; iy <= ny; iy++) {
+      for (let ix = 0; ix <= nx; ix++) {
+        const x = xmin + ix * dx;
+        const y = ymin + iy * dy;
+        points.push({ x, y });
+      }
+    }
+
+    const totalPoints = points.length;
+
+    // Emit probe:start
+    this._broadcastToClients('probe-start', { totalPoints, params });
+
+    // Reset autolevel probe data for simulation
+    this.autolevel.probedPoints = [];
+    this.autolevel.min_dz = 0;
+    this.autolevel.max_dz = 0;
+    this.autolevel.sum_dz = 0;
+
+    // Simulate points one by one with delay
+    let index = 0;
+    const interval = setInterval(() => {
+      if (index >= totalPoints) {
+        clearInterval(interval);
+        // Emit completion
+        const count = this.autolevel.probedPoints.length;
+        const avgZ = count > 0 ? this.autolevel.sum_dz / count : 0;
+        this._broadcastToClients('probe-complete', {
+          minZ: this.autolevel.min_dz,
+          maxZ: this.autolevel.max_dz,
+          avgZ: avgZ,
+          stddev: 0,
+          count: count,
+          success: true
+        });
+        console.log(`Simulation complete: ${count} points`);
+        return;
+      }
+
+      const pt = points[index];
+      // Generate realistic Z: slight bowl shape + random noise
+      // z = a*(x-cx)^2 + b*(y-cy)^2 + noise
+      const cx = (xmin + xmax) / 2;
+      const cy = (ymin + ymax) / 2;
+      const a = 0.0003; // curvature coefficient
+      const b = 0.0002;
+      const noise = (Math.random() - 0.5) * 0.02; // ±0.01mm noise
+      const z = a * (pt.x - cx) * (pt.x - cx) + b * (pt.y - cy) * (pt.y - cy) + noise - 0.05;
+
+      const probedPt = { x: pt.x, y: pt.y, z: parseFloat(z.toFixed(3)) };
+
+      // Update autolevel state
+      if (this.autolevel.probedPoints.length === 0) {
+        this.autolevel.min_dz = probedPt.z;
+        this.autolevel.max_dz = probedPt.z;
+        this.autolevel.sum_dz = probedPt.z;
+      } else {
+        if (probedPt.z < this.autolevel.min_dz) this.autolevel.min_dz = probedPt.z;
+        if (probedPt.z > this.autolevel.max_dz) this.autolevel.max_dz = probedPt.z;
+        this.autolevel.sum_dz += probedPt.z;
+      }
+      this.autolevel.probedPoints.push(probedPt);
+
+      index++;
+
+      // Emit progress
+      this._broadcastToClients('probe-progress', {
+        index: index,
+        total: totalPoints,
+        x: probedPt.x,
+        y: probedPt.y,
+        z: probedPt.z,
+        timestamp: Date.now()
+      });
+
+    }, 200); // 200ms between points (simulates ~5 points/sec)
   }
 }
 

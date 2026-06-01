@@ -97,6 +97,16 @@ class SocketClient {
   }
 
   /**
+   * Start simulation with given parameters.
+   * @param {object} params
+   */
+  simulate(params) {
+    if (this.socket) {
+      this.socket.emit('simulate-probe', params);
+    }
+  }
+
+  /**
    * Request current state from server.
    */
   getState() {
