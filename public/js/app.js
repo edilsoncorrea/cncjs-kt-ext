@@ -82,7 +82,13 @@
       input.addEventListener('input', () => {
         validateField(input);
         recalculateGrid();
+        updateButtonStates();
       });
+    });
+
+    // Bind probe-only checkbox to button state update
+    document.getElementById('param-probeonly').addEventListener('change', () => {
+      updateButtonStates();
     });
 
     // Canvas tooltip

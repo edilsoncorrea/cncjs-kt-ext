@@ -101,7 +101,7 @@ class WidgetServer {
       socket.emit('initial-state', this._getState());
 
       socket.on('start-probe', (params) => {
-        let cmd = '#autolevel';
+        let cmd = '(#autolevel';
         if (params.delta) cmd += ` D${params.delta}`;
         if (params.height) cmd += ` H${params.height}`;
         if (params.feed) cmd += ` F${params.feed}`;
@@ -110,8 +110,18 @@ class WidgetServer {
         if (params.xSize) cmd += ` X${params.xSize}`;
         if (params.ySize) cmd += ` Y${params.ySize}`;
         if (params.probeOnly) cmd += ' P1';
-        // Execute through the existing macro path
-        this.autolevel.sckw.sendGcode(`(${cmd})`);
+        cmd += ')';
+        console.log('Widget: starting probe with command:', cmd);
+        // Call autolevel.start() directly with a synthetic context
+        // The context needs position and gcode bounds
+        const context = {
+          source: 'feeder',
+          mposx: 0, mposy: 0, mposz: this.autolevel.height || 2,
+          posx: 0, posy: 0, posz: this.autolevel.height || 2,
+          xmin: 0, xmax: params.xSize || 50,
+          ymin: 0, ymax: params.ySize || 50
+        };
+        this.autolevel.start(cmd, context);
       });
 
       socket.on('stop-probe', () => {

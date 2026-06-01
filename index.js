@@ -4,7 +4,7 @@ const { Command } = require('commander')
 const pkg = require('./package.json')
 const fs = require('fs')
 const path = require('path')
-const { io } = require('socket.io-client')
+const ioClient = require('socket.io-client')
 const jwt = require('jsonwebtoken')
 const Autolevel = require('./autolevel.js')
 const http = require('http');
@@ -154,12 +154,13 @@ if (!options.id && !options.name) {
 const token = generateAccessToken({ id: options.id, name: options.name }, options.secret, options.accessTokenLifetime)
 const url = 'ws://' + options.socketAddress + ':' + options.socketPort
 
-let socket = io(url, {
-  query: { token },
+let socket = ioClient.connect('ws://' + options.socketAddress + ':' + options.socketPort, {
+  query: 'token=' + token,
   reconnection: true,
   reconnectionAttempts: 3,
   reconnectionDelay: 5000,
-  timeout: 10000
+  timeout: 10000,
+  transports: ['websocket']
 })
 
 socket.on('connect', () => {
@@ -174,7 +175,7 @@ socket.on('connect', () => {
 socket.on('error', (err) => {
   console.error('Connection error.', err)
   if (socket) {
-    socket.disconnect()
+    socket.close()
     socket = null
   }
 })
