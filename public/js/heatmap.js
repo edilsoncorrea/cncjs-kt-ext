@@ -20,6 +20,10 @@ class HeatmapRenderer {
     // 3D rotation (radians)
     this.rotationX = 0.6;  // tilt (pitch)
     this.rotationZ = 0.8;  // spin (yaw)
+    // Zoom
+    this.zoom = 1.0; // 1.0 = 100%
+    this.ZOOM_MIN = 0.3;  // 30%
+    this.ZOOM_MAX = 1.5;  // 150%
     // Mouse drag state
     this._dragging = false;
     this._lastMouseX = 0;
@@ -32,6 +36,14 @@ class HeatmapRenderer {
    */
   _initMouseHandlers() {
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    // Zoom with scroll wheel (both 2D and 3D)
+    this.canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.05 : 0.05;
+      this.zoom = Math.max(this.ZOOM_MIN, Math.min(this.ZOOM_MAX, this.zoom + delta));
+      this.render(this.points);
+    }, { passive: false });
 
     this.canvas.addEventListener('mousedown', (e) => {
       if (e.button === 2 && this.mode === '3d') {
@@ -254,15 +266,18 @@ class HeatmapRenderer {
   _worldToCanvas(wx, wy) {
     if (!this.bounds) return { x: 0, y: 0 };
 
-    const drawWidth = this.canvas.width - this.padding * 2 - this.legendWidth - 20;
-    const drawHeight = this.canvas.height - this.padding * 2;
+    const drawWidth = (this.canvas.width - this.padding * 2 - this.legendWidth - 20) * this.zoom;
+    const drawHeight = (this.canvas.height - this.padding * 2) * this.zoom;
 
     const rangeX = this.bounds.xMax - this.bounds.xMin || 1;
     const rangeY = this.bounds.yMax - this.bounds.yMin || 1;
 
-    const x = this.padding + ((wx - this.bounds.xMin) / rangeX) * drawWidth;
+    const offsetX = (this.canvas.width - this.legendWidth - 20 - drawWidth) / 2;
+    const offsetY = (this.canvas.height - drawHeight) / 2;
+
+    const x = offsetX + ((wx - this.bounds.xMin) / rangeX) * drawWidth;
     // Flip Y so that Y increases upward
-    const y = this.padding + drawHeight - ((wy - this.bounds.yMin) / rangeY) * drawHeight;
+    const y = offsetY + drawHeight - ((wy - this.bounds.yMin) / rangeY) * drawHeight;
 
     return { x, y };
   }
@@ -503,7 +518,7 @@ class HeatmapRenderer {
     const pz = ry * sinX + rz * cosX;
 
     // Orthographic projection to screen
-    const drawSize = Math.min(this.canvas.width - this.legendWidth - 80, this.canvas.height - 100) * 0.8;
+    const drawSize = Math.min(this.canvas.width - this.legendWidth - 80, this.canvas.height - 100) * 0.8 * this.zoom;
     const centerX = (this.canvas.width - this.legendWidth) / 2;
     const centerY = this.canvas.height / 2;
 
