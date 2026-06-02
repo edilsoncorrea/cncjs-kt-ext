@@ -99,8 +99,12 @@ class HeatmapRenderer {
     this.points.push(point);
     this._computeBounds();
     this._clear();
-    this._drawBackground();
-    this._drawPoints();
+    if (this.mode === '3d') {
+      this._render3D();
+    } else {
+      this._drawBackground();
+      this._drawPoints();
+    }
     this.drawLegend();
   }
 
@@ -510,7 +514,7 @@ class HeatmapRenderer {
   }
 
   /**
-   * Draws 3D axes indicator and orientation labels.
+   * Draws 3D axes indicator and front edge highlight.
    */
   _drawAxes3D() {
     const ctx = this.ctx;
@@ -527,7 +531,6 @@ class HeatmapRenderer {
 
     for (const axis of axes) {
       const [dx, dy, dz] = axis.dir;
-      // Apply same rotation as _worldToCanvas3D
       const cosZ = Math.cos(this.rotationZ);
       const sinZ = Math.sin(this.rotationZ);
       const rx = dx * cosZ - dy * sinZ;
@@ -552,31 +555,44 @@ class HeatmapRenderer {
       ctx.fillText(axis.label, endX + 3, endY - 3);
     }
 
-    // Draw "FRONT" indicator - project the -Y direction (front of the machine)
-    const cosZ = Math.cos(this.rotationZ);
-    const sinZ = Math.sin(this.rotationZ);
-    const frontDirX = -sinZ; // -Y rotated
-    const frontDirY_rot = -cosZ;
-    const cosX = Math.cos(this.rotationX);
-    const frontScreenX = frontDirX;
-    const frontScreenY = frontDirY_rot * cosX;
+    // Draw front edge of the bed (Y=Ymin line) highlighted in yellow
+    if (this.bounds) {
+      const xMin = this.bounds.xMin;
+      const xMax = this.bounds.xMax;
+      const yMin = this.bounds.yMin;
 
-    // Place "FRONT" label at the edge of canvas in the front direction
-    const labelDist = 80;
-    const centerX = (this.canvas.width - this.legendWidth) / 2;
-    const centerY = this.canvas.height / 2;
-    const frontLabelX = centerX + frontScreenX * labelDist * 2;
-    const frontLabelY = centerY - frontScreenY * labelDist * 2;
+      const frontLeft = this._worldToCanvas3D(xMin, yMin, 0);
+      const frontRight = this._worldToCanvas3D(xMax, yMin, 0);
 
-    // Clamp to canvas bounds
-    const clampedX = Math.max(30, Math.min(this.canvas.width - this.legendWidth - 50, frontLabelX));
-    const clampedY = Math.max(20, Math.min(this.canvas.height - 20, frontLabelY));
+      ctx.strokeStyle = '#ffcc00';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(frontLeft.x, frontLeft.y);
+      ctx.lineTo(frontRight.x, frontRight.y);
+      ctx.stroke();
 
-    ctx.fillStyle = 'rgba(255, 200, 0, 0.7)';
-    ctx.font = 'bold 12px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('▼ FRONT', clampedX, clampedY);
-    ctx.textAlign = 'left'; // reset
+      // Draw other edges in dim white for reference
+      const backLeft = this._worldToCanvas3D(xMin, this.bounds.yMax, 0);
+      const backRight = this._worldToCanvas3D(xMax, this.bounds.yMax, 0);
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.lineWidth = 1;
+      // Back edge
+      ctx.beginPath();
+      ctx.moveTo(backLeft.x, backLeft.y);
+      ctx.lineTo(backRight.x, backRight.y);
+      ctx.stroke();
+      // Left edge
+      ctx.beginPath();
+      ctx.moveTo(frontLeft.x, frontLeft.y);
+      ctx.lineTo(backLeft.x, backLeft.y);
+      ctx.stroke();
+      // Right edge
+      ctx.beginPath();
+      ctx.moveTo(frontRight.x, frontRight.y);
+      ctx.lineTo(backRight.x, backRight.y);
+      ctx.stroke();
+    }
   }
 }
 
