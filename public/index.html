@@ -19,10 +19,10 @@
     <!-- Left: Heatmap Canvas -->
     <section class="heatmap-section">
       <div class="view-toggle">
-        <button id="btn-view-2d" class="btn btn-small active">2D</button>
-        <button id="btn-view-3d" class="btn btn-small">3D</button>
+        <button id="btn-view-2d" class="btn btn-small">2D</button>
+        <button id="btn-view-3d" class="btn btn-small active">3D</button>
         <label class="z-exaggeration">
-          Z ×<input type="number" id="z-exaggeration" value="100" min="1" max="1000" step="10">
+          Z ×<input type="number" id="z-exaggeration" value="5" min="1" max="1000" step="1">
         </label>
       </div>
       <canvas id="heatmap-canvas" width="600" height="500"></canvas>

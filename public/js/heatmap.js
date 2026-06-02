@@ -15,8 +15,8 @@ class HeatmapRenderer {
     this.padding = options.padding || 50;
     this.pointRadius = options.pointRadius || 12;
     this.legendWidth = 40;
-    this.mode = '2d'; // '2d' or '3d'
-    this.zExaggeration = options.zExaggeration || 100; // Z multiplier for 3D view
+    this.mode = '3d'; // '2d' or '3d' - default to 3D
+    this.zExaggeration = options.zExaggeration || 5; // Z multiplier for 3D view
     // 3D rotation (radians)
     this.rotationX = 0.6;  // tilt (pitch)
     this.rotationZ = 0.8;  // spin (yaw)
@@ -510,7 +510,7 @@ class HeatmapRenderer {
   }
 
   /**
-   * Draws 3D axes indicator.
+   * Draws 3D axes indicator and orientation labels.
    */
   _drawAxes3D() {
     const ctx = this.ctx;
@@ -518,34 +518,65 @@ class HeatmapRenderer {
     const oy = this.canvas.height - 50;
     const len = 30;
 
-    // X axis (right-forward)
-    ctx.strokeStyle = '#ff4444';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(ox, oy);
-    ctx.lineTo(ox + len, oy - len * 0.5);
-    ctx.stroke();
-    ctx.fillStyle = '#ff4444';
-    ctx.font = '11px sans-serif';
-    ctx.fillText('X', ox + len + 3, oy - len * 0.5);
+    // Transform axis directions using current rotation
+    const axes = [
+      { dir: [1, 0, 0], label: 'X', color: '#ff4444' },
+      { dir: [0, 1, 0], label: 'Y', color: '#44ff44' },
+      { dir: [0, 0, 1], label: 'Z', color: '#6666ff' }
+    ];
 
-    // Y axis (left-forward)
-    ctx.strokeStyle = '#44ff44';
-    ctx.beginPath();
-    ctx.moveTo(ox, oy);
-    ctx.lineTo(ox - len, oy - len * 0.5);
-    ctx.stroke();
-    ctx.fillStyle = '#44ff44';
-    ctx.fillText('Y', ox - len - 12, oy - len * 0.5);
+    for (const axis of axes) {
+      const [dx, dy, dz] = axis.dir;
+      // Apply same rotation as _worldToCanvas3D
+      const cosZ = Math.cos(this.rotationZ);
+      const sinZ = Math.sin(this.rotationZ);
+      const rx = dx * cosZ - dy * sinZ;
+      const ry = dx * sinZ + dy * cosZ;
+      const rz = dz;
+      const cosX = Math.cos(this.rotationX);
+      const sinX = Math.sin(this.rotationX);
+      const py = ry * cosX - rz * sinX;
 
-    // Z axis (up)
-    ctx.strokeStyle = '#4444ff';
-    ctx.beginPath();
-    ctx.moveTo(ox, oy);
-    ctx.lineTo(ox, oy - len * 1.5);
-    ctx.stroke();
-    ctx.fillStyle = '#4444ff';
-    ctx.fillText('Z', ox + 3, oy - len * 1.5 - 5);
+      const endX = ox + rx * len;
+      const endY = oy - py * len;
+
+      ctx.strokeStyle = axis.color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(ox, oy);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+
+      ctx.fillStyle = axis.color;
+      ctx.font = 'bold 11px sans-serif';
+      ctx.fillText(axis.label, endX + 3, endY - 3);
+    }
+
+    // Draw "FRONT" indicator - project the -Y direction (front of the machine)
+    const cosZ = Math.cos(this.rotationZ);
+    const sinZ = Math.sin(this.rotationZ);
+    const frontDirX = -sinZ; // -Y rotated
+    const frontDirY_rot = -cosZ;
+    const cosX = Math.cos(this.rotationX);
+    const frontScreenX = frontDirX;
+    const frontScreenY = frontDirY_rot * cosX;
+
+    // Place "FRONT" label at the edge of canvas in the front direction
+    const labelDist = 80;
+    const centerX = (this.canvas.width - this.legendWidth) / 2;
+    const centerY = this.canvas.height / 2;
+    const frontLabelX = centerX + frontScreenX * labelDist * 2;
+    const frontLabelY = centerY - frontScreenY * labelDist * 2;
+
+    // Clamp to canvas bounds
+    const clampedX = Math.max(30, Math.min(this.canvas.width - this.legendWidth - 50, frontLabelX));
+    const clampedY = Math.max(20, Math.min(this.canvas.height - 20, frontLabelY));
+
+    ctx.fillStyle = 'rgba(255, 200, 0, 0.7)';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('▼ FRONT', clampedX, clampedY);
+    ctx.textAlign = 'left'; // reset
   }
 }
 
