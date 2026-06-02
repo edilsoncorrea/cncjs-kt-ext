@@ -517,14 +517,18 @@ class HeatmapRenderer {
     const py = ry * cosX - rz * sinX;
     const pz = ry * sinX + rz * cosX;
 
-    // Orthographic projection to screen
+    // Perspective projection
     const drawSize = Math.min(this.canvas.width - this.legendWidth - 80, this.canvas.height - 100) * 0.8 * this.zoom;
     const centerX = (this.canvas.width - this.legendWidth) / 2;
     const centerY = this.canvas.height / 2;
 
+    // Camera distance for perspective (larger = less perspective, smaller = more)
+    const cameraDistance = 2.5;
+    const perspectiveFactor = cameraDistance / (cameraDistance - pz);
+
     return {
-      x: centerX + rx * drawSize,
-      y: centerY - py * drawSize  // flip Y for screen coords
+      x: centerX + rx * drawSize * perspectiveFactor,
+      y: centerY - py * drawSize * perspectiveFactor
     };
   }
 
