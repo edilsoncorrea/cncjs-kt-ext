@@ -15,76 +15,88 @@
     </div>
   </header>
 
-  <main class="main-layout">
-    <!-- Left: Heatmap Canvas -->
-    <section class="heatmap-section">
-      <div class="view-toggle">
-        <button id="btn-view-2d" class="btn btn-small">2D</button>
-        <button id="btn-view-3d" class="btn btn-small active">3D</button>
-        <label class="z-exaggeration">
-          Z ×<input type="number" id="z-exaggeration" value="5" min="1" max="1000" step="1">
-        </label>
-      </div>
-      <canvas id="heatmap-canvas" width="600" height="380"></canvas>
-      <div class="tooltip" id="tooltip" style="display:none;"></div>
-    </section>
-
-    <!-- Right: Controls Panel -->
-    <aside class="controls-panel">
-      <!-- Parameters Form -->
-      <section class="panel-section">
-        <h2>Parameters</h2>
-        <form id="params-form" autocomplete="off">
-          <div class="form-group">
-            <label for="param-delta">Delta (mm)</label>
-            <input type="number" id="param-delta" name="delta" value="10" step="0.5" min="0.1">
-            <span class="error-msg" id="error-delta"></span>
-          </div>
-          <div class="form-group">
-            <label for="param-height">Height (mm)</label>
-            <input type="number" id="param-height" name="height" value="2" step="0.5" min="0.1">
-            <span class="error-msg" id="error-height"></span>
-          </div>
-          <div class="form-group">
-            <label for="param-feed">Feed (mm/min)</label>
-            <input type="number" id="param-feed" name="feed" value="50" step="10" min="1">
-            <span class="error-msg" id="error-feed"></span>
-          </div>
-          <div class="form-group">
-            <label for="param-margin">Margin (mm)</label>
-            <input type="number" id="param-margin" name="margin" value="2.5" step="0.5" min="0">
-            <span class="error-msg" id="error-margin"></span>
-          </div>
-          <div class="form-group">
-            <label for="param-nprobes">N Probes</label>
-            <input type="number" id="param-nprobes" name="nProbes" value="1" step="1" min="1" max="10">
-            <span class="error-msg" id="error-nProbes"></span>
-          </div>
-          <div class="form-group">
-            <label for="param-xsize">X Size (mm, optional)</label>
-            <input type="number" id="param-xsize" name="xSize" step="1" min="0" placeholder="auto">
-            <span class="error-msg" id="error-xSize"></span>
-          </div>
-          <div class="form-group">
-            <label for="param-ysize">Y Size (mm, optional)</label>
-            <input type="number" id="param-ysize" name="ySize" step="1" min="0" placeholder="auto">
-            <span class="error-msg" id="error-ySize"></span>
-          </div>
-          <div class="form-group checkbox-group">
-            <label>
-              <input type="checkbox" id="param-probeonly" name="probeOnly">
-              Probe Only (no G-code compensation)
-            </label>
-          </div>
-        </form>
-        <div class="grid-info" id="grid-info">
-          <span id="grid-points">Points: --</span>
-          <span id="grid-time">Est. time: --</span>
+  <div class="app-layout">
+    <!-- Top row: Canvas + Parameters side panel -->
+    <div class="top-row">
+      <!-- Heatmap Canvas -->
+      <section class="heatmap-section">
+        <div class="view-toggle">
+          <button id="btn-view-2d" class="btn btn-small">2D</button>
+          <button id="btn-view-3d" class="btn btn-small active">3D</button>
+          <label class="z-exaggeration">
+            Z ×<input type="number" id="z-exaggeration" value="5" min="1" max="1000" step="1">
+          </label>
         </div>
+        <canvas id="heatmap-canvas" width="700" height="420"></canvas>
+        <div class="tooltip" id="tooltip" style="display:none;"></div>
       </section>
 
-      <!-- Action Buttons -->
-      <section class="panel-section">
+      <!-- Parameters Panel (right side) -->
+      <aside class="params-panel">
+        <section class="panel-section">
+          <h2>Parameters</h2>
+          <form id="params-form" autocomplete="off">
+            <div class="form-row">
+              <label for="param-delta">Delta</label>
+              <input type="number" id="param-delta" name="delta" value="10" step="0.5" min="0.1">
+              <span class="unit">mm</span>
+              <span class="error-msg" id="error-delta"></span>
+            </div>
+            <div class="form-row">
+              <label for="param-height">Height</label>
+              <input type="number" id="param-height" name="height" value="2" step="0.5" min="0.1">
+              <span class="unit">mm</span>
+              <span class="error-msg" id="error-height"></span>
+            </div>
+            <div class="form-row">
+              <label for="param-feed">Feed</label>
+              <input type="number" id="param-feed" name="feed" value="50" step="10" min="1">
+              <span class="unit">mm/min</span>
+              <span class="error-msg" id="error-feed"></span>
+            </div>
+            <div class="form-row">
+              <label for="param-margin">Margin</label>
+              <input type="number" id="param-margin" name="margin" value="2.5" step="0.5" min="0">
+              <span class="unit">mm</span>
+              <span class="error-msg" id="error-margin"></span>
+            </div>
+            <div class="form-row">
+              <label for="param-nprobes">N Probes</label>
+              <input type="number" id="param-nprobes" name="nProbes" value="1" step="1" min="1" max="10">
+              <span class="unit"></span>
+              <span class="error-msg" id="error-nProbes"></span>
+            </div>
+            <div class="form-row">
+              <label for="param-xsize">X Size</label>
+              <input type="number" id="param-xsize" name="xSize" step="1" min="0" placeholder="auto">
+              <span class="unit">mm</span>
+              <span class="error-msg" id="error-xSize"></span>
+            </div>
+            <div class="form-row">
+              <label for="param-ysize">Y Size</label>
+              <input type="number" id="param-ysize" name="ySize" step="1" min="0" placeholder="auto">
+              <span class="unit">mm</span>
+              <span class="error-msg" id="error-ySize"></span>
+            </div>
+            <div class="form-row checkbox-row">
+              <label>
+                <input type="checkbox" id="param-probeonly" name="probeOnly">
+                Probe Only
+              </label>
+            </div>
+          </form>
+          <div class="grid-info" id="grid-info">
+            <span id="grid-points">Points: --</span>
+            <span id="grid-time">Est: --</span>
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <!-- Bottom row: Controls + Statistics + Progress + Files -->
+    <div class="bottom-row">
+      <!-- Controls -->
+      <section class="panel-section bottom-panel">
         <h2>Controls</h2>
         <div class="button-group">
           <button id="btn-start" class="btn btn-primary">Start Probing</button>
@@ -94,8 +106,8 @@
         </div>
       </section>
 
-      <!-- Progress Bar -->
-      <section class="panel-section" id="progress-section" style="display:none;">
+      <!-- Progress -->
+      <section class="panel-section bottom-panel" id="progress-section">
         <h2>Progress</h2>
         <div class="progress-bar-container">
           <div class="progress-bar" id="progress-bar"></div>
@@ -104,32 +116,30 @@
       </section>
 
       <!-- Statistics -->
-      <section class="panel-section">
+      <section class="panel-section bottom-panel">
         <h2>Statistics</h2>
-        <div class="stats-grid" id="stats-panel">
-          <div class="stat-item"><span class="stat-label">Min Z:</span><span class="stat-value" id="stat-minz">--</span></div>
-          <div class="stat-item"><span class="stat-label">Max Z:</span><span class="stat-value" id="stat-maxz">--</span></div>
-          <div class="stat-item"><span class="stat-label">Avg Z:</span><span class="stat-value" id="stat-avgz">--</span></div>
-          <div class="stat-item"><span class="stat-label">Std Dev:</span><span class="stat-value" id="stat-stddev">--</span></div>
-          <div class="stat-item"><span class="stat-label">Amplitude:</span><span class="stat-value" id="stat-amplitude">--</span></div>
-          <div class="stat-item"><span class="stat-label">Points:</span><span class="stat-value" id="stat-count">--</span></div>
+        <div class="stats-inline" id="stats-panel">
+          <span>Min:<b id="stat-minz">--</b></span>
+          <span>Max:<b id="stat-maxz">--</b></span>
+          <span>Avg:<b id="stat-avgz">--</b></span>
+          <span>σ:<b id="stat-stddev">--</b></span>
+          <span>Amp:<b id="stat-amplitude">--</b></span>
+          <span>Pts:<b id="stat-count">--</b></span>
         </div>
       </section>
 
-      <!-- File Management -->
-      <section class="panel-section">
+      <!-- Files -->
+      <section class="panel-section bottom-panel">
         <h2>Files</h2>
-        <div class="file-controls">
-          <div class="file-save-row">
-            <input type="text" id="file-name-input" placeholder="filename.txt">
-            <button id="btn-save" class="btn btn-small">Save</button>
-          </div>
-          <button id="btn-load-list" class="btn btn-small btn-secondary">Load File...</button>
+        <div class="file-inline">
+          <input type="text" id="file-name-input" placeholder="filename.txt">
+          <button id="btn-save" class="btn btn-small">Save</button>
+          <button id="btn-load-list" class="btn btn-small btn-secondary">Load</button>
         </div>
         <ul class="file-list" id="file-list"></ul>
       </section>
-    </aside>
-  </main>
+    </div>
+  </div>
 
   <div class="toast" id="toast" style="display:none;"></div>
 
