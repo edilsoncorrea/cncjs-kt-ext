@@ -17,9 +17,54 @@ class HeatmapRenderer {
     this.legendWidth = 40;
     this.mode = '2d'; // '2d' or '3d'
     this.zExaggeration = options.zExaggeration || 100; // Z multiplier for 3D view
-    // Isometric angles
-    this.isoAngleX = Math.PI / 6; // 30 degrees
-    this.isoAngleY = Math.PI / 6;
+    // 3D rotation (radians)
+    this.rotationX = 0.6;  // tilt (pitch)
+    this.rotationZ = 0.8;  // spin (yaw)
+    // Mouse drag state
+    this._dragging = false;
+    this._lastMouseX = 0;
+    this._lastMouseY = 0;
+    this._initMouseHandlers();
+  }
+
+  /**
+   * Initialize mouse handlers for 3D rotation (right-click drag).
+   */
+  _initMouseHandlers() {
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    this.canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 2 && this.mode === '3d') {
+        this._dragging = true;
+        this._lastMouseX = e.clientX;
+        this._lastMouseY = e.clientY;
+        e.preventDefault();
+      }
+    });
+
+    this.canvas.addEventListener('mousemove', (e) => {
+      if (this._dragging) {
+        const dx = e.clientX - this._lastMouseX;
+        const dy = e.clientY - this._lastMouseY;
+        this.rotationZ += dx * 0.01;
+        this.rotationX -= dy * 0.01;
+        // Clamp rotationX to avoid flipping
+        this.rotationX = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, this.rotationX));
+        this._lastMouseX = e.clientX;
+        this._lastMouseY = e.clientY;
+        this.render(this.points);
+      }
+    });
+
+    this.canvas.addEventListener('mouseup', (e) => {
+      if (e.button === 2) {
+        this._dragging = false;
+      }
+    });
+
+    this.canvas.addEventListener('mouseleave', () => {
+      this._dragging = false;
+    });
   }
 
   /**
@@ -423,7 +468,7 @@ class HeatmapRenderer {
   }
 
   /**
-   * Projects world coordinates to canvas coordinates using isometric projection.
+   * Projects world coordinates to canvas coordinates using rotatable 3D projection.
    * @param {number} wx - World X
    * @param {number} wy - World Y
    * @param {number} wz - World Z (will be exaggerated)
@@ -435,23 +480,32 @@ class HeatmapRenderer {
     const rangeX = this.bounds.xMax - this.bounds.xMin || 1;
     const rangeY = this.bounds.yMax - this.bounds.yMin || 1;
 
-    // Normalize to 0..1
-    const nx = (wx - this.bounds.xMin) / rangeX;
-    const ny = (wy - this.bounds.yMin) / rangeY;
-    const nz = wz * this.zExaggeration;
+    // Normalize and center around origin (-0.5 to 0.5)
+    const nx = (wx - this.bounds.xMin) / rangeX - 0.5;
+    const ny = (wy - this.bounds.yMin) / rangeY - 0.5;
+    const nz = wz * this.zExaggeration / Math.max(rangeX, rangeY);
 
-    // Isometric projection
-    const drawSize = Math.min(this.canvas.width - this.legendWidth - 80, this.canvas.height - 100) * 0.7;
+    // Rotate around Z axis (yaw/spin)
+    const cosZ = Math.cos(this.rotationZ);
+    const sinZ = Math.sin(this.rotationZ);
+    const rx = nx * cosZ - ny * sinZ;
+    const ry = nx * sinZ + ny * cosZ;
+    const rz = nz;
+
+    // Rotate around X axis (pitch/tilt) for top-down perspective
+    const cosX = Math.cos(this.rotationX);
+    const sinX = Math.sin(this.rotationX);
+    const py = ry * cosX - rz * sinX;
+    const pz = ry * sinX + rz * cosX;
+
+    // Orthographic projection to screen
+    const drawSize = Math.min(this.canvas.width - this.legendWidth - 80, this.canvas.height - 100) * 0.8;
     const centerX = (this.canvas.width - this.legendWidth) / 2;
-    const centerY = this.canvas.height / 2 + 30;
-
-    // Isometric transform
-    const isoX = (nx - ny) * drawSize * 0.5;
-    const isoY = (nx + ny) * drawSize * 0.25 - nz * 2;
+    const centerY = this.canvas.height / 2;
 
     return {
-      x: centerX + isoX,
-      y: centerY + isoY
+      x: centerX + rx * drawSize,
+      y: centerY - py * drawSize  // flip Y for screen coords
     };
   }
 
