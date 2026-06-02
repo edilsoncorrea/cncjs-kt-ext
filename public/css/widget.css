@@ -320,3 +320,28 @@ body {
   .main-layout { flex-direction: column; }
   .controls-panel { width: 100%; max-height: none; }
 }
+
+/* View toggle */
+.view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.view-toggle .btn.active {
+  background: #2196F3;
+  color: white;
+}
+.z-exaggeration {
+  margin-left: 10px;
+  font-size: 12px;
+  color: #aaa;
+}
+.z-exaggeration input {
+  width: 60px;
+  background: #1a1a2e;
+  border: 1px solid #333;
+  color: #e0e0e0;
+  padding: 2px 4px;
+  border-radius: 3px;
+}

@@ -77,6 +77,22 @@
     elements.btnLoadList.addEventListener('click', handleLoadListClick);
     document.getElementById('btn-simulate').addEventListener('click', handleSimulateClick);
 
+    // View mode toggle
+    document.getElementById('btn-view-2d').addEventListener('click', () => {
+      heatmap.setMode('2d');
+      document.getElementById('btn-view-2d').classList.add('active');
+      document.getElementById('btn-view-3d').classList.remove('active');
+    });
+    document.getElementById('btn-view-3d').addEventListener('click', () => {
+      heatmap.setMode('3d');
+      document.getElementById('btn-view-3d').classList.add('active');
+      document.getElementById('btn-view-2d').classList.remove('active');
+    });
+    document.getElementById('z-exaggeration').addEventListener('input', (e) => {
+      const val = parseInt(e.target.value) || 100;
+      heatmap.setZExaggeration(val);
+    });
+
     // Bind form inputs to grid recalculation
     const inputs = elements.paramsForm.querySelectorAll('input[type="number"]');
     inputs.forEach(input => {

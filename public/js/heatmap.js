@@ -15,6 +15,11 @@ class HeatmapRenderer {
     this.padding = options.padding || 50;
     this.pointRadius = options.pointRadius || 12;
     this.legendWidth = 40;
+    this.mode = '2d'; // '2d' or '3d'
+    this.zExaggeration = options.zExaggeration || 100; // Z multiplier for 3D view
+    // Isometric angles
+    this.isoAngleX = Math.PI / 6; // 30 degrees
+    this.isoAngleY = Math.PI / 6;
   }
 
   /**
@@ -31,8 +36,13 @@ class HeatmapRenderer {
 
     this._computeBounds();
     this._clear();
-    this._drawBackground();
-    this._drawPoints();
+
+    if (this.mode === '3d') {
+      this._render3D();
+    } else {
+      this._drawBackground();
+      this._drawPoints();
+    }
     this.drawLegend();
   }
 
@@ -257,6 +267,231 @@ class HeatmapRenderer {
     this.ctx.font = '14px sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.fillText('No probe data', this.canvas.width / 2, this.canvas.height / 2);
+  }
+
+  /**
+   * Set the view mode ('2d' or '3d').
+   * @param {string} mode
+   */
+  setMode(mode) {
+    this.mode = mode;
+    this.render(this.points);
+  }
+
+  /**
+   * Set Z exaggeration factor.
+   * @param {number} factor
+   */
+  setZExaggeration(factor) {
+    this.zExaggeration = factor;
+    if (this.mode === '3d') {
+      this.render(this.points);
+    }
+  }
+
+  /**
+   * 3D isometric rendering of the probe surface.
+   * Projects XY as isometric plane, Z as vertical height.
+   */
+  _render3D() {
+    const ctx = this.ctx;
+    const w = this.canvas.width;
+    const h = this.canvas.height;
+
+    // Background
+    ctx.fillStyle = '#0f0f23';
+    ctx.fillRect(0, 0, w, h);
+
+    if (!this.bounds || this.points.length === 0) return;
+
+    // Sort points for correct painter's algorithm (back to front)
+    const sorted = [...this.points].sort((a, b) => {
+      // Sort by Y descending (far points first), then X ascending
+      if (a.y !== b.y) return b.y - a.y;
+      return a.x - b.x;
+    });
+
+    // Build grid map for wireframe
+    const gridMap = new Map();
+    for (const p of this.points) {
+      const key = `${p.x.toFixed(2)}_${p.y.toFixed(2)}`;
+      gridMap.set(key, p);
+    }
+
+    // Get unique sorted X and Y values
+    const xVals = [...new Set(this.points.map(p => p.x))].sort((a, b) => a - b);
+    const yVals = [...new Set(this.points.map(p => p.y))].sort((a, b) => a - b);
+
+    // Draw wireframe surface (lines connecting adjacent points)
+    ctx.lineWidth = 1;
+
+    // Draw in order from back to front for painter's algorithm
+    for (let yi = yVals.length - 1; yi >= 0; yi--) {
+      for (let xi = 0; xi < xVals.length; xi++) {
+        const key = `${xVals[xi].toFixed(2)}_${yVals[yi].toFixed(2)}`;
+        const p = gridMap.get(key);
+        if (!p) continue;
+
+        const pos = this._worldToCanvas3D(p.x, p.y, p.z);
+        const color = HeatmapRenderer.zToColor(p.z, this.minZ, this.maxZ);
+
+        // Draw lines to right neighbor
+        if (xi < xVals.length - 1) {
+          const rKey = `${xVals[xi + 1].toFixed(2)}_${yVals[yi].toFixed(2)}`;
+          const rp = gridMap.get(rKey);
+          if (rp) {
+            const rPos = this._worldToCanvas3D(rp.x, rp.y, rp.z);
+            ctx.strokeStyle = color;
+            ctx.globalAlpha = 0.6;
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+            ctx.lineTo(rPos.x, rPos.y);
+            ctx.stroke();
+          }
+        }
+
+        // Draw lines to front neighbor
+        if (yi > 0) {
+          const fKey = `${xVals[xi].toFixed(2)}_${yVals[yi - 1].toFixed(2)}`;
+          const fp = gridMap.get(fKey);
+          if (fp) {
+            const fPos = this._worldToCanvas3D(fp.x, fp.y, fp.z);
+            ctx.strokeStyle = color;
+            ctx.globalAlpha = 0.6;
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+            ctx.lineTo(fPos.x, fPos.y);
+            ctx.stroke();
+          }
+        }
+
+        // Draw filled quad (surface patch) if we have all 4 corners
+        if (xi < xVals.length - 1 && yi > 0) {
+          const trKey = `${xVals[xi + 1].toFixed(2)}_${yVals[yi].toFixed(2)}`;
+          const blKey = `${xVals[xi].toFixed(2)}_${yVals[yi - 1].toFixed(2)}`;
+          const brKey = `${xVals[xi + 1].toFixed(2)}_${yVals[yi - 1].toFixed(2)}`;
+          const tr = gridMap.get(trKey);
+          const bl = gridMap.get(blKey);
+          const br = gridMap.get(brKey);
+
+          if (tr && bl && br) {
+            const trPos = this._worldToCanvas3D(tr.x, tr.y, tr.z);
+            const blPos = this._worldToCanvas3D(bl.x, bl.y, bl.z);
+            const brPos = this._worldToCanvas3D(br.x, br.y, br.z);
+
+            const avgZ = (p.z + tr.z + bl.z + br.z) / 4;
+            const fillColor = HeatmapRenderer.zToColor(avgZ, this.minZ, this.maxZ);
+
+            ctx.globalAlpha = 0.4;
+            ctx.fillStyle = fillColor;
+            ctx.beginPath();
+            ctx.moveTo(pos.x, pos.y);
+            ctx.lineTo(trPos.x, trPos.y);
+            ctx.lineTo(brPos.x, brPos.y);
+            ctx.lineTo(blPos.x, blPos.y);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+
+        ctx.globalAlpha = 1.0;
+      }
+    }
+
+    // Draw points on top
+    for (let yi = yVals.length - 1; yi >= 0; yi--) {
+      for (let xi = 0; xi < xVals.length; xi++) {
+        const key = `${xVals[xi].toFixed(2)}_${yVals[yi].toFixed(2)}`;
+        const p = gridMap.get(key);
+        if (!p) continue;
+
+        const pos = this._worldToCanvas3D(p.x, p.y, p.z);
+        const color = HeatmapRenderer.zToColor(p.z, this.minZ, this.maxZ);
+
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+      }
+    }
+
+    // Draw axes
+    this._drawAxes3D();
+  }
+
+  /**
+   * Projects world coordinates to canvas coordinates using isometric projection.
+   * @param {number} wx - World X
+   * @param {number} wy - World Y
+   * @param {number} wz - World Z (will be exaggerated)
+   * @returns {{x: number, y: number}}
+   */
+  _worldToCanvas3D(wx, wy, wz) {
+    if (!this.bounds) return { x: 0, y: 0 };
+
+    const rangeX = this.bounds.xMax - this.bounds.xMin || 1;
+    const rangeY = this.bounds.yMax - this.bounds.yMin || 1;
+
+    // Normalize to 0..1
+    const nx = (wx - this.bounds.xMin) / rangeX;
+    const ny = (wy - this.bounds.yMin) / rangeY;
+    const nz = wz * this.zExaggeration;
+
+    // Isometric projection
+    const drawSize = Math.min(this.canvas.width - this.legendWidth - 80, this.canvas.height - 100) * 0.7;
+    const centerX = (this.canvas.width - this.legendWidth) / 2;
+    const centerY = this.canvas.height / 2 + 30;
+
+    // Isometric transform
+    const isoX = (nx - ny) * drawSize * 0.5;
+    const isoY = (nx + ny) * drawSize * 0.25 - nz * 2;
+
+    return {
+      x: centerX + isoX,
+      y: centerY + isoY
+    };
+  }
+
+  /**
+   * Draws 3D axes indicator.
+   */
+  _drawAxes3D() {
+    const ctx = this.ctx;
+    const ox = 50;
+    const oy = this.canvas.height - 50;
+    const len = 30;
+
+    // X axis (right-forward)
+    ctx.strokeStyle = '#ff4444';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(ox, oy);
+    ctx.lineTo(ox + len, oy - len * 0.5);
+    ctx.stroke();
+    ctx.fillStyle = '#ff4444';
+    ctx.font = '11px sans-serif';
+    ctx.fillText('X', ox + len + 3, oy - len * 0.5);
+
+    // Y axis (left-forward)
+    ctx.strokeStyle = '#44ff44';
+    ctx.beginPath();
+    ctx.moveTo(ox, oy);
+    ctx.lineTo(ox - len, oy - len * 0.5);
+    ctx.stroke();
+    ctx.fillStyle = '#44ff44';
+    ctx.fillText('Y', ox - len - 12, oy - len * 0.5);
+
+    // Z axis (up)
+    ctx.strokeStyle = '#4444ff';
+    ctx.beginPath();
+    ctx.moveTo(ox, oy);
+    ctx.lineTo(ox, oy - len * 1.5);
+    ctx.stroke();
+    ctx.fillStyle = '#4444ff';
+    ctx.fillText('Z', ox + 3, oy - len * 1.5 - 5);
   }
 }
 
