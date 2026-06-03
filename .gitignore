@@ -1,3 +1,5 @@
 node_modules/
 .vscode/
 pm2.config.js
+__autolevel_config.json
+__last_Z_probe.txt
