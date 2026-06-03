@@ -121,7 +121,7 @@
     const value = input.value;
     const errorEl = document.getElementById(`error-${name}`);
 
-    if (!value && (name === 'xSize' || name === 'ySize' || name === 'feedZ' || name === 'feedXY')) {
+    if (!value && (name === 'xSize' || name === 'ySize')) {
       // Optional fields
       input.classList.remove('invalid');
       if (errorEl) errorEl.textContent = '';
@@ -144,7 +144,7 @@
     const inputs = elements.paramsForm.querySelectorAll('input[type="number"]');
     let valid = true;
     inputs.forEach(input => {
-      if (input.name === 'xSize' || input.name === 'ySize' || input.name === 'feedZ' || input.name === 'feedXY') {
+      if (input.name === 'xSize' || input.name === 'ySize') {
         if (input.value && !validateField(input)) valid = false;
       } else {
         if (!validateField(input)) valid = false;
