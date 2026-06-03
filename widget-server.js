@@ -105,6 +105,8 @@ class WidgetServer {
         if (params.delta) cmd += ` D${params.delta}`;
         if (params.height) cmd += ` H${params.height}`;
         if (params.feed) cmd += ` F${params.feed}`;
+        if (params.feedZ) cmd += ` FZ${params.feedZ}`;
+        if (params.feedXY) cmd += ` FXY${params.feedXY}`;
         if (params.margin !== undefined) cmd += ` M${params.margin}`;
         if (params.N && params.N > 1) cmd += ` N${params.N}`;
         if (params.xSize) cmd += ` X${params.xSize}`;

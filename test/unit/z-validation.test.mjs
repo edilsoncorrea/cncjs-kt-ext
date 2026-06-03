@@ -126,14 +126,14 @@ describe('Z position validation in start()', () => {
     };
     al.start('#autolevel', context);
 
-    // The sendGcode call with the probing code should have G0 Z2 before any XY movement
-    const codeBlock = sentMessages.find(msg => msg.includes('G0 X'));
+    // The sendGcode call with the probing code should have G1 Z before any XY movement
+    const codeBlock = sentMessages.find(msg => msg.includes('G1 X') || msg.includes('G0 X'));
     expect(codeBlock).toBeDefined();
 
     if (codeBlock) {
       const lines = codeBlock.split('\n');
-      // Find first line with only Z movement (no X or Y)
-      const firstZOnlyMove = lines.findIndex(l => /G0\s+Z\d/.test(l) && !/X/.test(l) && !/Y/.test(l));
+      // Find first line with only Z movement (no X or Y) - now uses G1 Z with feed
+      const firstZOnlyMove = lines.findIndex(l => /G[01]\s+Z\d/.test(l) && !/X/.test(l) && !/Y/.test(l));
       // Find first line with X or Y movement
       const firstXYMove = lines.findIndex(l => /[XY]/.test(l) && !/^\(/.test(l.trim()));
       // Z-only move should come before any XY move

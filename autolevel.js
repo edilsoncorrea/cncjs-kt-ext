@@ -313,8 +313,20 @@ module.exports = class Autolevel {
       return
     }
 
-    let f = /F([\.\+\-\d]+)/gi.exec(cmd)
+    // Parse FXY and FZ first (more specific), then F (generic)
+    let fxyMatch = /FXY([\.\+\-\d]+)/gi.exec(cmd)
+    let fzMatch = /FZ([\.\+\-\d]+)/gi.exec(cmd)
+
+    // Parse F — need to match F that is NOT followed by Z or XY
+    let cmdForF = cmd.replace(/FXY[\.\+\-\d]+/gi, '').replace(/FZ[\.\+\-\d]+/gi, '')
+    let f = /F([\.\+\-\d]+)/gi.exec(cmdForF)
     if (f) this.feed = parseFloat(f[1])
+
+    // FZ: feed for Z up moves (default = same as F)
+    this.feedUp = fzMatch ? parseFloat(fzMatch[1]) : this.feed
+
+    // FXY: feed for XY travel moves (default = same as F)
+    this.feedXY = fxyMatch ? parseFloat(fxyMatch[1]) : this.feed
 
     let margin = this.delta / 4;
 
@@ -411,11 +423,11 @@ module.exports = class Autolevel {
     code.push('(AL: probing initial point)')
     code.push(`G21`)
     code.push(`G90`)
-    code.push(`G0 Z${this.height}`)
-    code.push(`G0 X${xmin.toFixed(3)} Y${ymin.toFixed(3)} Z${this.height}`)
+    code.push(`G1 Z${this.height} F${this.feedUp}`)
+    code.push(`G1 X${xmin.toFixed(3)} Y${ymin.toFixed(3)} F${this.feedXY}`)
     code.push(`G38.2 Z-${this.height + 1} F${this.feed / 2}`)
     code.push(`G10 L20 P1 Z0`) // set the z zero
-    code.push(`G0 Z${this.height}`)
+    code.push(`G1 Z${this.height} F${this.feedUp}`)
     this.planedPointCount++
 
     let y = ymin - dy
@@ -436,9 +448,9 @@ module.exports = class Autolevel {
           return
         }
         code.push(`(AL: probing point ${this.planedPointCount + 1})`)
-        code.push(`G90 G0 X${x.toFixed(3)} Y${y.toFixed(3)} Z${this.height}`)
+        code.push(`G90 G1 X${x.toFixed(3)} Y${y.toFixed(3)} F${this.feedXY}`)
         code.push(`G38.2 Z-${this.height + 1} F${this.feed}`)
-        code.push(`G0 Z${this.height}`)
+        code.push(`G1 Z${this.height} F${this.feedUp}`)
         this.planedPointCount++
       }
     }

@@ -121,7 +121,7 @@
     const value = input.value;
     const errorEl = document.getElementById(`error-${name}`);
 
-    if (!value && (name === 'xSize' || name === 'ySize')) {
+    if (!value && (name === 'xSize' || name === 'ySize' || name === 'feedZ' || name === 'feedXY')) {
       // Optional fields
       input.classList.remove('invalid');
       if (errorEl) errorEl.textContent = '';
@@ -144,7 +144,7 @@
     const inputs = elements.paramsForm.querySelectorAll('input[type="number"]');
     let valid = true;
     inputs.forEach(input => {
-      if (input.name === 'xSize' || input.name === 'ySize') {
+      if (input.name === 'xSize' || input.name === 'ySize' || input.name === 'feedZ' || input.name === 'feedXY') {
         if (input.value && !validateField(input)) valid = false;
       } else {
         if (!validateField(input)) valid = false;
@@ -181,6 +181,8 @@
       delta: parseFloat(document.getElementById('param-delta').value) || 10,
       height: parseFloat(document.getElementById('param-height').value) || 2,
       feed: parseFloat(document.getElementById('param-feed').value) || 50,
+      feedZ: parseFloat(document.getElementById('param-feedz').value) || 0,
+      feedXY: parseFloat(document.getElementById('param-feedxy').value) || 0,
       margin: parseFloat(document.getElementById('param-margin').value) || 0,
       nProbes: parseInt(document.getElementById('param-nprobes').value) || 1,
       xSize: parseFloat(document.getElementById('param-xsize').value) || 0,
@@ -303,6 +305,8 @@
       delta: params.delta,
       height: params.height,
       feed: params.feed,
+      feedZ: params.feedZ || undefined,
+      feedXY: params.feedXY || undefined,
       margin: params.margin,
       N: params.nProbes,
       xSize: params.xSize || undefined,

@@ -31,6 +31,11 @@ function validateParam(name, value) {
       if (num <= 0) return { valid: false, error: 'Feed must be greater than 0' };
       return { valid: true };
 
+    case 'feedZ':
+    case 'feedXY':
+      if (num <= 0) return { valid: false, error: 'Feed must be greater than 0' };
+      return { valid: true };
+
     case 'margin':
       if (num < 0) return { valid: false, error: 'Margin must be >= 0' };
       return { valid: true };
