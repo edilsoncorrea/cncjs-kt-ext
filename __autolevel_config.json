@@ -1,0 +1,15 @@
+{
+  "delta": 10,
+  "height": 2,
+  "feed": 50,
+  "feedZ": 200,
+  "feedXY": 200,
+  "margin": 2.5,
+  "nProbes": 1,
+  "xSize": null,
+  "ySize": null,
+  "probeOnly": true,
+  "viewMode": "3d",
+  "zExaggeration": 5,
+  "zoom": 1
+}

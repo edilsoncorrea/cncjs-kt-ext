@@ -167,7 +167,10 @@
     });
 
     elements.gridPoints.textContent = `Points: ${grid.count}`;
-    elements.gridTime.textContent = `Est. time: ${grid.estimatedTime.toFixed(1)} min`;
+    const totalMinutes = grid.estimatedTime;
+    const mins = Math.floor(totalMinutes);
+    const secs = Math.round((totalMinutes - mins) * 60);
+    elements.gridTime.textContent = `Est: ${mins}:${secs.toString().padStart(2, '0')}`;
 
     // Draw grid overlay on heatmap if we have bounds
     if (grid.points.length > 0) {
