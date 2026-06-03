@@ -163,6 +163,8 @@
       ySize: params.ySize || undefined,
       height: params.height,
       feed: params.feed,
+      feedZ: params.feedZ || params.feed,
+      feedXY: params.feedXY || params.feed,
       nProbes: params.nProbes,
     });
 

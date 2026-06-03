@@ -99,9 +99,11 @@ function calculateGrid(params) {
 
   const height = params.height || 2;
   const feed = params.feed || 50;
+  const feedZ = params.feedZ || feed;
+  const feedXY = params.feedXY || feed;
   const nProbes = params.nProbes || 1;
   const avgSpacing = (dx + dy) / 2;
-  const estimatedTime = estimateTime(points.length, height, feed, nProbes, avgSpacing);
+  const estimatedTime = estimateTime(points.length, height, feed, feedZ, feedXY, nProbes, avgSpacing);
 
   return { points, count: points.length, estimatedTime };
 }
@@ -110,18 +112,20 @@ function calculateGrid(params) {
  * Estimates probing time in minutes.
  * @param {number} pointCount
  * @param {number} height - Travel height (mm)
- * @param {number} feed - Probe feedrate (mm/min)
+ * @param {number} feed - Probe down feedrate (mm/min)
+ * @param {number} feedZ - Z retract feedrate (mm/min)
+ * @param {number} feedXY - XY travel feedrate (mm/min)
  * @param {number} probesPerPoint
  * @param {number} avgSpacing - Average spacing between points (mm)
  * @returns {number} Estimated time in minutes
  */
-function estimateTime(pointCount, height, feed, probesPerPoint, avgSpacing) {
+function estimateTime(pointCount, height, feed, feedZ, feedXY, probesPerPoint, avgSpacing) {
   if (pointCount === 0 || feed <= 0) return 0;
 
-  // Time per point: descend + ascend at probe feed + travel to next point at rapid
-  const probeTime = (height + 1) / feed; // minutes to probe down
-  const retractTime = height / 1000; // rapid retract (assume 1000 mm/min)
-  const travelTime = avgSpacing / 1000; // rapid travel between points
+  // Time per probe cycle
+  const probeTime = (height + 1) / feed; // descend at probe feed
+  const retractTime = height / feedZ; // retract at feedZ
+  const travelTime = avgSpacing / feedXY; // travel between points at feedXY
 
   const timePerPoint = (probeTime + retractTime + travelTime) * probesPerPoint;
   return pointCount * timePerPoint;
