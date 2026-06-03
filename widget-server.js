@@ -1,11 +1,14 @@
 'use strict';
 const express = require('express');
 const http = require('http');
+const fs = require('fs');
 const { Server } = require('socket.io');
 const compression = require('compression');
 const path = require('path');
 const RateLimiter = require('./rate-limiter.js');
 const { registerWidgetAPI } = require('./widget-api.js');
+
+const CONFIG_FILE = '__autolevel_config.json';
 
 class WidgetServer {
   constructor(autolevel, options = {}) {
@@ -15,6 +18,27 @@ class WidgetServer {
     this.server = null;
     this.io = null;
     this.rateLimiter = new RateLimiter(10); // max 10 msgs/sec
+    this.savedConfig = this._loadConfig();
+  }
+
+  _loadConfig() {
+    try {
+      const data = fs.readFileSync(CONFIG_FILE, 'utf8');
+      const config = JSON.parse(data);
+      console.log('Widget: loaded saved config from ' + CONFIG_FILE);
+      return config;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  _saveConfig(config) {
+    try {
+      fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf8');
+      console.log('Widget: config saved to ' + CONFIG_FILE);
+    } catch (err) {
+      console.log('Widget: failed to save config: ' + err.message);
+    }
   }
 
   start() {
@@ -59,6 +83,8 @@ class WidgetServer {
         delta: this.autolevel.delta,
         height: this.autolevel.height,
         feed: this.autolevel.feed,
+        feedZ: this.autolevel.feedUp || null,
+        feedXY: this.autolevel.feedXY || null,
         nProbes: this.autolevel.probesPerPoint,
       },
       probeData: {
@@ -70,7 +96,8 @@ class WidgetServer {
       },
       probing: {
         active: this.autolevel.planedPointCount > 0,
-      }
+      },
+      savedConfig: this.savedConfig
     };
   }
 
@@ -137,6 +164,11 @@ class WidgetServer {
       socket.on('simulate-probe', (params) => {
         console.log('Widget: starting SIMULATION with params:', params);
         this._runSimulation(params);
+      });
+
+      socket.on('save-config', (config) => {
+        this.savedConfig = config;
+        this._saveConfig(config);
       });
 
       socket.on('get-state', () => {

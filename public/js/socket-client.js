@@ -107,6 +107,16 @@ class SocketClient {
   }
 
   /**
+   * Save configuration to server.
+   * @param {object} config
+   */
+  saveConfig(config) {
+    if (this.socket) {
+      this.socket.emit('save-config', config);
+    }
+  }
+
+  /**
    * Request current state from server.
    */
   getState() {

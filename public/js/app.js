@@ -203,8 +203,34 @@
   }
 
   function handleInitialState(data) {
-    // Fill form with server params
-    if (data.params) {
+    // Load saved config first (persisted from last session)
+    if (data.savedConfig) {
+      const c = data.savedConfig;
+      if (c.delta) document.getElementById('param-delta').value = c.delta;
+      if (c.height) document.getElementById('param-height').value = c.height;
+      if (c.feed) document.getElementById('param-feed').value = c.feed;
+      if (c.feedZ) document.getElementById('param-feedz').value = c.feedZ;
+      if (c.feedXY) document.getElementById('param-feedxy').value = c.feedXY;
+      if (c.margin !== undefined) document.getElementById('param-margin').value = c.margin;
+      if (c.nProbes) document.getElementById('param-nprobes').value = c.nProbes;
+      if (c.xSize) document.getElementById('param-xsize').value = c.xSize;
+      if (c.ySize) document.getElementById('param-ysize').value = c.ySize;
+      if (c.probeOnly) document.getElementById('param-probeonly').checked = c.probeOnly;
+      // Restore view settings
+      if (c.viewMode) {
+        heatmap.setMode(c.viewMode);
+        document.getElementById('btn-view-2d').classList.toggle('active', c.viewMode === '2d');
+        document.getElementById('btn-view-3d').classList.toggle('active', c.viewMode === '3d');
+      }
+      if (c.zExaggeration) {
+        document.getElementById('z-exaggeration').value = c.zExaggeration;
+        heatmap.setZExaggeration(c.zExaggeration);
+      }
+      if (c.zoom) {
+        heatmap.zoom = c.zoom;
+      }
+    } else if (data.params) {
+      // Fallback to current server params
       if (data.params.delta) document.getElementById('param-delta').value = data.params.delta;
       if (data.params.height) document.getElementById('param-height').value = data.params.height;
       if (data.params.feed) document.getElementById('param-feed').value = data.params.feed;
@@ -297,10 +323,33 @@
   }
 
   // --- Button Handlers ---
+  // --- Save Config ---
+  function _saveCurrentConfig() {
+    const params = getFormParams();
+    const config = {
+      delta: params.delta,
+      height: params.height,
+      feed: params.feed,
+      feedZ: params.feedZ || null,
+      feedXY: params.feedXY || null,
+      margin: params.margin,
+      nProbes: params.nProbes,
+      xSize: params.xSize || null,
+      ySize: params.ySize || null,
+      probeOnly: params.probeOnly,
+      viewMode: heatmap.mode,
+      zExaggeration: heatmap.zExaggeration,
+      zoom: heatmap.zoom,
+    };
+    socketClient.saveConfig(config);
+  }
+
+  // --- Button Handlers ---
   function handleStartClick() {
     if (!isFormValid()) return;
 
     const params = getFormParams();
+    _saveCurrentConfig();
     socketClient.startProbe({
       delta: params.delta,
       height: params.height,
@@ -327,6 +376,7 @@
 
   function handleSimulateClick() {
     const params = getFormParams();
+    _saveCurrentConfig();
     socketClient.simulate({
       delta: params.delta,
       height: params.height,
