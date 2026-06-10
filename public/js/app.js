@@ -220,7 +220,6 @@
       if (c.nProbes) document.getElementById('param-nprobes').value = c.nProbes;
       if (c.xSize) document.getElementById('param-xsize').value = c.xSize;
       if (c.ySize) document.getElementById('param-ysize').value = c.ySize;
-      if (c.probeOnly) document.getElementById('param-probeonly').checked = c.probeOnly;
       // Restore view settings
       if (c.viewMode) {
         heatmap.setMode(c.viewMode);
@@ -341,7 +340,7 @@
       nProbes: params.nProbes,
       xSize: params.xSize || null,
       ySize: params.ySize || null,
-      probeOnly: params.probeOnly,
+      // probeOnly is intentionally NOT saved - always starts unchecked
       viewMode: heatmap.mode,
       zExaggeration: heatmap.zExaggeration,
       zoom: heatmap.zoom,
