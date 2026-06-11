@@ -98,6 +98,15 @@
     inputs.forEach(input => {
       input.addEventListener('input', () => {
         validateField(input);
+        // If target points was edited, calculate delta from it
+        if (input.name === 'targetPoints') {
+          input._userEditing = true;
+          _calculateDeltaFromPoints();
+          input._userEditing = false;
+        } else if (input.name === 'delta') {
+          // Clear target points user editing flag
+          document.getElementById('param-targetpts')._userEditing = false;
+        }
         recalculateGrid();
         updateButtonStates();
       });
@@ -121,7 +130,7 @@
     const value = input.value;
     const errorEl = document.getElementById(`error-${name}`);
 
-    if (!value && (name === 'xSize' || name === 'ySize')) {
+    if (!value && (name === 'xSize' || name === 'ySize' || name === 'targetPoints')) {
       // Optional fields
       input.classList.remove('invalid');
       if (errorEl) errorEl.textContent = '';
@@ -144,7 +153,7 @@
     const inputs = elements.paramsForm.querySelectorAll('input[type="number"]');
     let valid = true;
     inputs.forEach(input => {
-      if (input.name === 'xSize' || input.name === 'ySize') {
+      if (input.name === 'xSize' || input.name === 'ySize' || input.name === 'targetPoints') {
         if (input.value && !validateField(input)) valid = false;
       } else {
         if (!validateField(input)) valid = false;
@@ -154,6 +163,26 @@
   }
 
   // --- Grid Calculation ---
+  function _calculateDeltaFromPoints() {
+    const params = getFormParams();
+    const targetPoints = parseInt(document.getElementById('param-targetpts').value);
+    if (!targetPoints || targetPoints <= 0) return;
+
+    const margin = params.margin || 0;
+    const xSize = params.xSize || 50;
+    const ySize = params.ySize || 50;
+    const areaX = xSize - 2 * margin;
+    const areaY = ySize - 2 * margin;
+
+    if (areaX <= 0 || areaY <= 0) return;
+
+    // Calculate delta: sqrt(areaX * areaY / targetPoints)
+    const delta = Math.sqrt(areaX * areaY / targetPoints);
+    if (Number.isFinite(delta) && delta > 0) {
+      document.getElementById('param-delta').value = delta.toFixed(1);
+    }
+  }
+
   function recalculateGrid() {
     const params = getFormParams();
     const grid = calculateGrid({
@@ -168,11 +197,29 @@
       nProbes: params.nProbes,
     });
 
-    elements.gridPoints.textContent = `Points: ${grid.count}`;
+    elements.gridPoints.textContent = `Pts: ${grid.count}`;
     const totalMinutes = grid.estimatedTime;
     const mins = Math.floor(totalMinutes);
     const secs = Math.round((totalMinutes - mins) * 60);
     elements.gridTime.textContent = `Est: ${mins}:${secs.toString().padStart(2, '0')}`;
+
+    // Show area
+    const margin = params.margin || 0;
+    const xSize = params.xSize || 0;
+    const ySize = params.ySize || 0;
+    if (xSize > 0 && ySize > 0) {
+      const areaX = (xSize - 2 * margin);
+      const areaY = (ySize - 2 * margin);
+      document.getElementById('grid-area').textContent = `Area: ${areaX.toFixed(0)}×${areaY.toFixed(0)}mm`;
+    } else {
+      document.getElementById('grid-area').textContent = `Area: --`;
+    }
+
+    // Update target points field (show calculated count without triggering change)
+    const targetInput = document.getElementById('param-targetpts');
+    if (!targetInput._userEditing) {
+      targetInput.value = grid.count || '';
+    }
 
     // Draw grid overlay on heatmap if we have bounds
     if (grid.points.length > 0) {

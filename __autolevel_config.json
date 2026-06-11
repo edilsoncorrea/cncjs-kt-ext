@@ -1,5 +1,5 @@
 {
-  "delta": 25,
+  "delta": 10,
   "height": 2,
   "feed": 100,
   "feedZ": 1000,
@@ -8,7 +8,6 @@
   "nProbes": 1,
   "xSize": null,
   "ySize": null,
-  "probeOnly": true,
   "viewMode": "3d",
   "zExaggeration": 5,
   "zoom": 1
